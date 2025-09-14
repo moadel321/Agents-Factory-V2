@@ -89,7 +89,7 @@ def build_ir(flow: ConversationFlowOut) -> IRFlow:
             "max_tokens": flow.llm_settings.max_tokens,
         },
         tts={
-            "model": getattr(flow.tts_settings, "model", "eleven_monolingual_v1"),
+            "model": getattr(flow.tts_settings, "model", "eleven_multilingual_v2"),
             "voice_id": getattr(flow.tts_settings, "voice_id", None),
         },
         post_call_analysis=getattr(flow, "post_call_analysis", None),

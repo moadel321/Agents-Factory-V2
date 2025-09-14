@@ -79,7 +79,7 @@ class BaseFlowAgent(Agent):
         
         # Default configurations
         llm_config = llm_config or {"model": "gpt-4o-mini", "temperature": 0.7}
-        tts_config = tts_config or {"model": "eleven_monolingual_v1"}
+        tts_config = tts_config or {"model": "eleven_multilingual_v2"}
         
         # Initialize STT based on provider
         if stt_provider == "google":
@@ -97,14 +97,17 @@ class BaseFlowAgent(Agent):
         )
         
         # Initialize TTS (ElevenLabs as per requirements)
+        eleven_api_key = os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")
         if tts_config.get("voice_id"):
             tts = elevenlabs.TTS(
-                model=tts_config.get("model", "eleven_monolingual_v1"),
+                api_key=eleven_api_key,
+                model=tts_config.get("model", "eleven_multilingual_v2"),
                 voice=tts_config["voice_id"]
             )
         else:
             tts = elevenlabs.TTS(
-                model=tts_config.get("model", "eleven_monolingual_v1")
+                api_key=eleven_api_key,
+                model=tts_config.get("model", "eleven_multilingual_v2")
             )
         
         super().__init__(

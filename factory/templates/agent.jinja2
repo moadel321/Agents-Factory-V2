@@ -13,7 +13,9 @@ import aiohttp
 import asyncio
 
 # Load environment and configure logger
+# Load .env then .env.local (allow .env.local to override)
 load_dotenv()
+load_dotenv(".env.local", override=True)
 logger = logging.getLogger("{{ flow.url_id }}-agent")
 logger.setLevel(logging.INFO)
 
@@ -67,11 +69,15 @@ class BaseFlowAgent(Agent):
 
         {% if flow.tts.voice_id %}
         tts = elevenlabs.TTS(
-            model="{{ flow.tts.model or 'eleven_monolingual_v1' }}",
+            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
+            model="{{ flow.tts.model }}",
             voice_id="{{ flow.tts.voice_id }}"
         )
         {% else %}
-        tts = elevenlabs.TTS()
+        tts = elevenlabs.TTS(
+            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
+            model="{{ flow.tts.model }}"
+        )
         {% endif %}
         
 
@@ -425,11 +431,15 @@ async def entrypoint(ctx: JobContext) -> None:
         {% endif %}
         {% if flow.tts.voice_id %}
         tts=elevenlabs.TTS(
-            model="{{ flow.tts.model or 'eleven_monolingual_v1' }}",
+            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
+            model="{{ flow.tts.model }}",
             voice_id="{{ flow.tts.voice_id }}"
         ),
         {% else %}
-        tts=elevenlabs.TTS(),
+        tts=elevenlabs.TTS(
+            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
+            model="{{ flow.tts.model }}"
+        ),
         {% endif %}
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=True

@@ -37,7 +37,13 @@ class ElevenLabsTTSSettings(BaseModel):
         use_speaker_boost: Optional[bool]
 
     tts_provider: Literal["elevenlabs"]
-    model: str
+    model: Literal[
+        "eleven_multilingual_v2",
+        "eleven_flash_v2_5",
+        "eleven_flash_v2",
+        "eleven_turbo_v2_5",
+        "eleven_turbo_v2"
+    ]
     voice_id: str
     voice_settings: VoiceSettings
 

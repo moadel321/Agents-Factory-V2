@@ -4,6 +4,8 @@ Main code generator for flow agents using Jinja2 templates.
 import os
 import json
 import logging
+import subprocess
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -58,22 +60,24 @@ class CodeGenerator:
         return "go_" + "_".join(parts)
     
     def generate_agent(
-        self, 
-        flow: ConversationFlowOut, 
+        self,
+        flow: ConversationFlowOut,
         output_path: Optional[str] = None,
-        validate: bool = True
+        validate: bool = True,
+        format_code: bool = True
     ) -> str:
         """
         Generate agent code from a flow definition.
-        
+
         Args:
             flow: Flow definition
             output_path: Where to save the generated file (optional)
             validate: Whether to validate the flow first
-            
+            format_code: Whether to format the generated code with ruff
+
         Returns:
             Generated Python code as string
-            
+
         Raises:
             FlowValidationError: If flow validation fails
         """
@@ -103,9 +107,52 @@ class CodeGenerator:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(code)
             logger.info(f"Generated agent saved to {output_path}")
-        
+
+            # Format the generated code
+            if format_code:
+                self._format_code(output_path)
+
         return code
-    
+
+    def _format_code(self, file_path: str) -> None:
+        """
+        Format generated code using ruff.
+
+        Args:
+            file_path: Path to the file to format
+        """
+        if not shutil.which("ruff"):
+            logger.warning("ruff not found in PATH, skipping formatting")
+            return
+
+        try:
+            # Run ruff fix to auto-fix issues
+            result = subprocess.run(
+                ["ruff", "fix", file_path],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode != 0:
+                logger.warning(f"ruff fix warnings: {result.stderr}")
+
+            # Run ruff format to format code
+            result = subprocess.run(
+                ["ruff", "format", file_path],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode == 0:
+                logger.info(f"Formatted {file_path} with ruff")
+            else:
+                logger.warning(f"ruff format failed: {result.stderr}")
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"ruff formatting timed out for {file_path}")
+        except Exception as e:
+            logger.warning(f"ruff formatting failed for {file_path}: {e}")
+
     def _build_template_context(self, flow: ConversationFlowOut, ir: IRFlow) -> Dict[str, Any]:
         """
         Build context dictionary for template rendering.

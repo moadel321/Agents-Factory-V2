@@ -5,6 +5,8 @@ import os
 import sys
 import json
 import logging
+import subprocess
+import shutil
 from pathlib import Path
 from typing import Optional, List
 import click
@@ -16,6 +18,46 @@ from .schema_models import ConversationFlowOut
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def run_ruff_formatting(file_path: str) -> None:
+    """
+    Run ruff fix and ruff format on a Python file.
+
+    Args:
+        file_path: Path to the Python file to format
+    """
+    if not shutil.which("ruff"):
+        logger.warning("ruff not found in PATH, skipping formatting")
+        return
+
+    try:
+        # Run ruff fix to auto-fix issues
+        result = subprocess.run(
+            ["ruff", "fix", file_path],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode != 0:
+            logger.warning(f"ruff fix warnings: {result.stderr}")
+
+        # Run ruff format to format code
+        result = subprocess.run(
+            ["ruff", "format", file_path],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            logger.info(f"Formatted {file_path} with ruff")
+        else:
+            logger.warning(f"ruff format failed: {result.stderr}")
+
+    except subprocess.TimeoutExpired:
+        logger.warning(f"ruff formatting timed out for {file_path}")
+    except Exception as e:
+        logger.warning(f"ruff formatting failed for {file_path}: {e}")
 
 
 @click.group()
@@ -75,6 +117,9 @@ def generate(input_file, output_file, output_dir, validate, strict, template_dir
             for issue in code_issues:
                 logger.warning(f"  - {issue}")
         
+        # Format the generated code
+        run_ruff_formatting(output_file)
+
         logger.info(f"Successfully generated agent: {output_file}")
         click.echo(f"Generated agent saved to: {output_file}")
         
@@ -145,7 +190,10 @@ def batch(input_dir, output_dir, pattern, validate, strict, template_dir, contin
                 # Generate
                 output_file = os.path.join(output_dir, f"agent_{flow.url_id}.py")
                 generator.generate_agent(flow, output_file, validate=False)
-                
+
+                # Format the generated code
+                run_ruff_formatting(output_file)
+
                 success_count += 1
                 logger.info(f"✓ Generated {flow_file.name} -> {output_file}")
                 
