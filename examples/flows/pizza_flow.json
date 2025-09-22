@@ -1,0 +1,218 @@
+{
+  "id": "pizza_flow_123",
+  "url_id": "pizza_ordering",
+  "created": "2024-01-01T00:00:00",
+  "updated": "2024-01-01T00:00:00",
+  "name": "Pizza Ordering Flow",
+  "instructions": "You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
+  "stt_settings": {
+    "provider": "google",
+    "language": "en-US"
+  },
+  "tts_settings": {
+    "tts_provider": "elevenlabs",
+    "model": "eleven_flash_v2_5",
+    "voice_id": "21m00Tcm4TlvDq8ikWAM",
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75,
+      "style": null,
+      "speed": null,
+      "use_speaker_boost": null
+    }
+  },
+  "llm_settings": {
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "temperature": 0.7,
+    "max_tokens": null
+  },
+  "call_settings": {
+    "who_speaks_first": "agent",
+    "end_call_on_silence_ms": 30000,
+    "max_call_duration_ms": 600000
+  },
+  "post_call_analysis": {
+    "model": "gpt-4o-mini",
+    "analysis_items": [
+      {
+        "name": "order_completed",
+        "description": "Whether the customer successfully completed their order",
+        "type": "boolean",
+        "selector_options": null
+      },
+      {
+        "name": "customer_satisfaction",
+        "description": "Estimated customer satisfaction level",
+        "type": "selector",
+        "selector_options": ["high", "medium", "low"]
+      },
+      {
+        "name": "total_items",
+        "description": "Number of items in the order",
+        "type": "number",
+        "selector_options": null
+      }
+    ]
+  },
+  "begin_position": {
+    "x": 0,
+    "y": 0
+  },
+  "start_node_id": "greeting",
+  "nodes": [
+    {
+      "id": "greeting",
+      "created": "2024-01-01T00:00:00",
+      "updated": "2024-01-01T00:00:00",
+      "name": "Greeting",
+      "is_global": false,
+      "global_settings": null,
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "conversation",
+      "settings": {
+        "on_enter_text": "Hi! Welcome to Pizza Palace. What would you like to order today?",
+        "on_enter_type": "prompt",
+        "allow_interruptions": true,
+        "skip_response": false,
+        "finetune_examples": [],
+        "llm_overrides": null
+      },
+      "function": null
+    },
+    {
+      "id": "collect_order",
+      "created": "2024-01-01T00:00:00",
+      "updated": "2024-01-01T00:00:00",
+      "name": "Collect Order Details",
+      "is_global": false,
+      "global_settings": null,
+      "position": {
+        "x": 200,
+        "y": 0
+      },
+      "type": "conversation",
+      "settings": {
+        "on_enter_text": "Great choice! Please tell me your phone number so I can send you a confirmation.",
+        "on_enter_type": "prompt",
+        "allow_interruptions": true,
+        "skip_response": false,
+        "finetune_examples": [],
+        "llm_overrides": null
+      },
+      "function": null
+    },
+    {
+      "id": "send_confirmation",
+      "created": "2024-01-01T00:00:00",
+      "updated": "2024-01-01T00:00:00",
+      "name": "Send SMS Confirmation",
+      "is_global": false,
+      "global_settings": null,
+      "position": {
+        "x": 400,
+        "y": 0
+      },
+      "type": "function",
+      "settings": {
+        "on_enter_text": "",
+        "on_enter_type": "static",
+        "allow_interruptions": false,
+        "skip_response": true,
+        "finetune_examples": [],
+        "llm_overrides": null
+      },
+      "function": {
+        "function_type": "sms",
+        "parameters_schema": {
+          "type": "object",
+          "properties": {
+            "to": {
+              "type": "string",
+              "description": "Customer phone number"
+            },
+            "body": {
+              "type": "string",
+              "description": "SMS confirmation message"
+            }
+          },
+          "required": ["to", "body"]
+        },
+        "timeout_ms": 15000,
+        "retries": 2
+      }
+    },
+    {
+      "id": "order_complete",
+      "created": "2024-01-01T00:00:00",
+      "updated": "2024-01-01T00:00:00",
+      "name": "Order Complete",
+      "is_global": false,
+      "global_settings": null,
+      "position": {
+        "x": 600,
+        "y": 0
+      },
+      "type": "conversation",
+      "settings": {
+        "on_enter_text": "Perfect! Your pizza order has been placed and you should receive a confirmation SMS shortly. Your pizza will be ready in about 20 minutes. Thank you for choosing Pizza Palace!",
+        "on_enter_type": "prompt",
+        "allow_interruptions": true,
+        "skip_response": false,
+        "finetune_examples": [],
+        "llm_overrides": null
+      },
+      "function": null
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_1",
+      "created": "2024-01-01T00:00:00",
+      "updated": "2024-01-01T00:00:00",
+      "from_node_id": "greeting",
+      "to_node_id": "collect_order",
+      "type": "prompt",
+      "settings": {
+        "prompt": "Customer has provided their pizza order details",
+        "name": "proceed_to_collect_info"
+      }
+    },
+    {
+      "id": "edge_2",
+      "created": "2024-01-01T00:00:00",
+      "updated": "2024-01-01T00:00:00",
+      "from_node_id": "collect_order",
+      "to_node_id": "send_confirmation",
+      "type": "prompt",
+      "settings": {
+        "prompt": "Customer has provided their phone number",
+        "name": "send_sms_confirmation"
+      }
+    },
+    {
+      "id": "edge_3",
+      "created": "2024-01-01T00:00:00",
+      "updated": "2024-01-01T00:00:00",
+      "from_node_id": "send_confirmation",
+      "to_node_id": "order_complete",
+      "type": "prompt",
+      "settings": {
+        "prompt": "SMS confirmation has been sent successfully",
+        "name": "complete_order"
+      }
+    },
+    {
+      "id": "edge_4",
+      "created": "2024-01-01T00:00:00",
+      "updated": "2024-01-01T00:00:00",
+      "from_node_id": "order_complete",
+      "to_node_id": null,
+      "type": "skip",
+      "settings": null
+    }
+  ]
+}

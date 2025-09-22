@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
@@ -17,7 +18,27 @@ import asyncio
 load_dotenv()
 load_dotenv(".env.local", override=True)
 logger = logging.getLogger("{{ flow.url_id }}-agent")
-logger.setLevel(logging.INFO)
+# Resolve log level: explicit FACTORY_LOG_LEVEL wins; otherwise DEBUG in test mode; else INFO
+_env_level = (os.getenv("FACTORY_LOG_LEVEL") or "").upper()
+_level_map = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+}
+
+# Generator Debug Mode (runtime toggle)
+TEST_MODE = os.getenv("FACTORY_TEST_MODE", "false").lower() == "true"
+# Flow generation mode (declarative default)
+FLOW_GENERATION_MODE = (os.getenv("FLOW_GENERATION_MODE") or "declarative").lower()
+# Apply resolved log level now that TEST_MODE is known
+if _env_level in _level_map:
+    logger.setLevel(_level_map[_env_level])
+else:
+    logger.setLevel(logging.DEBUG if TEST_MODE else logging.INFO)
+if TEST_MODE:
+    logger.info("FACTORY_TEST_MODE enabled: generator debug logs active")
 
 
 @dataclass
@@ -26,13 +47,25 @@ class FlowState:
     slots: Dict[str, Any] = field(default_factory=dict)
     path: List[str] = field(default_factory=list)
     task_results: Dict[str, Any] = field(default_factory=dict)
-    
+    loop_counts: Dict[str, int] = field(default_factory=dict)
+    MAX_LOOP_ITERATIONS: int = field(default=10)
+
     def add_to_path(self, node_id: str):
         self.path.append(node_id)
-        
+
+        # Track loop iterations for self-loops
+        if len(self.path) >= 2 and self.path[-1] == self.path[-2]:
+            self.loop_counts[node_id] = self.loop_counts.get(node_id, 0) + 1
+            if self.loop_counts[node_id] > self.MAX_LOOP_ITERATIONS:
+                logger.warning(f"Node {node_id} exceeded max loop iterations ({self.MAX_LOOP_ITERATIONS}), breaking loop")
+                raise Exception(f"Maximum loop iterations exceeded for node {node_id}")
+        else:
+            # Reset counter when leaving a node
+            self.loop_counts[node_id] = 0
+
     def set_slot(self, key: str, value: Any):
         self.slots[key] = value
-        
+
     def get_slot(self, key: str, default: Any = None) -> Any:
         return self.slots.get(key, default)
 
@@ -89,6 +122,110 @@ class BaseFlowAgent(Agent):
             vad=silero.VAD.load()
         )
     
+    def _enable_preemptive_generation(self):
+        """Enable preemptive_generation once we have first user-driven tool call."""
+        try:
+            flow_state: FlowState = self.session.userdata
+            already = flow_state.get_slot("_preemptive_enabled", False)
+            if not already:
+                if hasattr(self.session, "preemptive_generation"):
+                    self.session.preemptive_generation = True
+                flow_state.set_slot("_preemptive_enabled", True)
+                logger.info("Preemptive generation enabled after first user input")
+        except Exception as e:
+            logger.debug("Could not toggle preemptive_generation: %s", e)
+
+    def _route_to(self, current_node_id: str) -> Optional[Agent]:
+        """Route to the next agent based on FLOW_SPEC when in declarative mode.
+        Returns an Agent or None if terminal.
+        """
+        if FLOW_GENERATION_MODE != "declarative":
+            return None  # Not used in simple mode
+        try:
+            spec = FLOW_SPEC.get(current_node_id)
+            if not spec:
+                logger.error("No FLOW_SPEC entry for %s", current_node_id)
+                return None
+            edges = spec.get("edges", [])
+            # If single edge and it has a to_node
+            if len(edges) == 1:
+                if edges[0].get("to_node_id"):
+                    next_node_id = edges[0]["to_node_id"]
+                    if TEST_MODE:
+                        logger.info(
+                            "[GEN-DEBUG] router_select from=%s to=%s edge_id=%s edge_type=%s",
+                            current_node_id,
+                            next_node_id,
+                            edges[0].get("edge_id"),
+                            edges[0].get("edge_type"),
+                        )
+                else:
+                    # Explicit terminal edge -> EndAgent
+                    if TEST_MODE:
+                        logger.info(
+                            "[GEN-DEBUG] router_terminal from=%s to=%s (EndAgent)",
+                            current_node_id,
+                            None,
+                        )
+                    end_spec = FLOW_SPEC.get("__end__")
+                    if end_spec and globals().get(end_spec.get("agent_class")):
+                        return globals()[end_spec["agent_class"]](job_context=self.job_context)
+                    return None
+            else:
+                # Try trivial guard selection: pick first edge whose implied slots exist
+                # (Keep it minimal; clarify via LLM otherwise)
+                flow_state: FlowState = self.session.userdata
+                next_node_id = None
+                for e in edges:
+                    if e.get("to_node_id"):
+                        next_node_id = e["to_node_id"]
+                        if TEST_MODE:
+                            logger.info(
+                                "[GEN-DEBUG] router_select from=%s to=%s edge_id=%s edge_type=%s",
+                                current_node_id,
+                                next_node_id,
+                                e.get("edge_id"),
+                                e.get("edge_type"),
+                            )
+                        break
+                if next_node_id is None:
+                    # No viable target -> EndAgent
+                    if TEST_MODE:
+                        logger.info(
+                            "[GEN-DEBUG] router_terminal from=%s to=%s (EndAgent)",
+                            current_node_id,
+                            None,
+                        )
+                    end_spec = FLOW_SPEC.get("__end__")
+                    if end_spec and globals().get(end_spec.get("agent_class")):
+                        return globals()[end_spec["agent_class"]](job_context=self.job_context)
+                    return None
+
+            next_spec = FLOW_SPEC.get(next_node_id)
+            if not next_spec:
+                # If no next node (terminal), go to EndAgent if available
+                if TEST_MODE:
+                    logger.info(
+                        "[GEN-DEBUG] router_terminal from=%s to=%s (EndAgent)",
+                        current_node_id,
+                        next_node_id,
+                    )
+                end_spec = FLOW_SPEC.get("__end__")
+                if end_spec and globals().get(end_spec.get("agent_class")):
+                    return globals()[end_spec["agent_class"]](job_context=self.job_context)
+                return None
+            agent_cls_name = next_spec.get("agent_class")
+            if not agent_cls_name:
+                return None
+            agent_cls = globals().get(agent_cls_name)
+            if not agent_cls:
+                logger.error("Agent class %s not found", agent_cls_name)
+                return None
+            return agent_cls(job_context=self.job_context)
+        except Exception as e:
+            logger.error("Routing failed: %s", e)
+            return None
+
     async def say_or_skip(self, text: Optional[str], skip_response: bool = False):
         """Say text if provided and not skipping response"""
         if text and not skip_response:
@@ -114,8 +251,26 @@ class SendSMSTask:
     
     async def run(self, to: str, body: str, timeout_ms: int = 10000, retries: int = 0) -> Dict[str, Any]:
         """Send SMS via webhook or Twilio"""
+        # Check for test mode first
+        test_mode = os.getenv("FACTORY_TEST_MODE", "false").lower() == "true"
+        if test_mode:
+            logger.info(f"TEST MODE: Mocking SMS send to {to}: {body}")
+            # Simulate realistic delay
+            await asyncio.sleep(0.2)  # 200ms delay
+            import uuid
+            from datetime import datetime
+            return {
+                "sent": True,
+                "to": to,
+                "body": body,
+                "method": "mock",
+                "test_mode": True,
+                "message_id": f"test_msg_{uuid.uuid4().hex[:8]}",
+                "timestamp": datetime.now().isoformat()
+            }
+
         max_attempts = retries + 1
-        
+
         for attempt in range(max_attempts):
             try:
                 # Try webhook first if configured
@@ -125,28 +280,28 @@ class SendSMSTask:
                         async with session.post(webhook_url, json={"to": to, "body": body}) as response:
                             if response.status == 200:
                                 return {"sent": True, "to": to, "method": "webhook"}
-                
+
                 # Fallback to Twilio if configured
                 twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
                 twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
                 twilio_from = os.getenv("TWILIO_FROM_NUMBER")
-                
+
                 if twilio_sid and twilio_token and twilio_from:
                     # Implement Twilio SMS sending
                     logger.info(f"Would send SMS via Twilio from {twilio_from} to {to}: {body}")
                     return {"sent": True, "to": to, "method": "twilio"}
-                
+
                 # Mock response if no real provider configured
                 logger.warning("No SMS provider configured, mocking SMS send")
                 return {"sent": True, "to": to, "method": "mock"}
-                
+
             except Exception as e:
                 logger.error(f"SMS send attempt {attempt + 1} failed: {e}")
                 if attempt < max_attempts - 1:
                     await asyncio.sleep(1)
                 else:
                     return {"sent": False, "error": str(e)}
-        
+
         return {"sent": False, "error": "Max retries exceeded"}
 
 
@@ -157,12 +312,31 @@ class TransferCallTask:
     
     async def run(self, phone_number: str, timeout_ms: int = 10000, retries: int = 0) -> Dict[str, Any]:
         """Transfer call using LiveKit SIP"""
+        # Check for test mode first
+        test_mode = os.getenv("FACTORY_TEST_MODE", "false").lower() == "true"
+        if test_mode:
+            logger.info(f"TEST MODE: Mocking call transfer to {phone_number}")
+            # Simulate realistic SIP setup delay
+            await asyncio.sleep(0.5)  # 500ms delay
+            import uuid
+            from datetime import datetime
+            return {
+                "transferred": True,
+                "to": phone_number,
+                "method": "mock",
+                "test_mode": True,
+                "participant_id": f"test_participant_{uuid.uuid4().hex[:8]}",
+                "sip_trunk_id": "test_trunk",
+                "room_name": self.job_context.room.name,
+                "timestamp": datetime.now().isoformat()
+            }
+
         try:
             sip_trunk_id = os.getenv("SIP_TRUNK_ID")
             if not sip_trunk_id:
                 logger.warning("No SIP trunk configured, mocking transfer")
                 return {"transferred": True, "to": phone_number, "method": "mock"}
-            
+
             # Create SIP participant for transfer
             logger.info(f"Transferring call to {phone_number}")
             participant = await self.job_context.api.sip.create_sip_participant(
@@ -172,9 +346,9 @@ class TransferCallTask:
                     sip_call_to=phone_number
                 )
             )
-            
+
             return {"transferred": True, "to": phone_number, "participant_id": participant.participant.identity}
-            
+
         except Exception as e:
             logger.error(f"Transfer failed: {e}")
             return {"transferred": False, "error": str(e)}
@@ -222,6 +396,74 @@ class RestWebhookTask:
 
 
 
+# Declarative FLOW_SPEC (node map)
+FLOW_SPEC: Dict[str, Dict[str, Any]] = {
+{% for node in flow.nodes %}
+    "{{ node.id }}": {
+        "agent_class": "{{ node.class_name }}",
+        "type": "{{ node.type }}",
+        "edges": [
+        {% for edge in node.out_edges %}
+            {
+                "edge_id": {{ edge.edge_id | jsonify }},
+                "edge_type": {{ edge.edge_type | jsonify }},
+                "to_node_id": {% if edge.to_node_id %}"{{ edge.to_node_id }}"{% else %}None{% endif %},
+                "name": {{ edge.tool_name | jsonify }},
+                "description": {{ edge.description | jsonify }}
+            }{% if not loop.last %},{% endif %}
+        {% endfor %}
+        ]
+    }{% if not loop.last %},{% endif %}
+{% endfor %}
+    ,
+    "__end__": {
+        "agent_class": "EndAgent",
+        "type": "conversation",
+        "edges": []
+    }
+}
+
+
+class EndAgent(BaseFlowAgent):
+    """Terminal end node with optional FAQ handoff."""
+
+    def __init__(self, job_context: JobContext) -> None:
+        super().__init__(
+            job_context=job_context,
+            instructions="You are the end of the conversation. Offer a concise goodbye. If the user has more questions, offer to continue to FAQs."
+        )
+
+    async def on_enter(self) -> None:
+        flow_state: FlowState = self.session.userdata
+        flow_state.add_to_path("__end__")
+        if TEST_MODE:
+            prev_node = flow_state.path[-2] if len(flow_state.path) >= 2 else None
+            logger.info("[GEN-DEBUG] enter_node node_id=%s node_type=%s from=%r", "__end__", "conversation", prev_node)
+
+        # Simple goodbye; the LLM can handle follow-up intent if user speaks
+        await self.say_or_skip("Thank you! If you have any other questions, feel free to ask, otherwise have a great day.", False)
+
+    @function_tool
+    async def end_conversation(self) -> Optional[Agent]:
+        """Hard end the conversation"""
+        await self._handle_terminal()
+        return None
+
+    @function_tool
+    async def go_to_faq(self) -> Optional[Agent]:
+        """Handoff to FAQ/knowledge base"""
+        # Try to locate an AnswerFaqAgent class if present
+        faq_cls = globals().get("AnswerFaqAgent")
+        if faq_cls:
+            return faq_cls(job_context=self.job_context)
+        # If not present, just end
+        await self._handle_terminal()
+        return None
+
+    async def _handle_terminal(self):
+        # Post-call analysis is disabled for EndAgent
+        await self.end_call_if_needed()
+
 # Generated Agent Classes
 {% for node in flow.nodes %}
 
@@ -238,24 +480,23 @@ class {{ node.class_name }}(BaseFlowAgent):
         """Called when entering this node"""
         flow_state: FlowState = self.session.userdata
         flow_state.add_to_path("{{ node.id }}")
+        if TEST_MODE:
+            prev_node = flow_state.path[-2] if len(flow_state.path) >= 2 else None
+            logger.info("[GEN-DEBUG] enter_node node_id=%s node_type=%s from=%r", "{{ node.id }}", "{{ node.type }}", prev_node)
 
         {% if node.type == "conversation" %}
         {% if node.on_enter_text and not node.skip_response %}
         await self.say_or_skip("{{ node.on_enter_text | replace('\n', '\\n') | replace('"', '\\"') }}", {{ 'True' if node.skip_response else 'False' }})
         {% endif %}
 
-        {% if node.out_edges %}
-        # Prompt LLM to select next action from available edge tools
-        instructions = """Select the next action by calling one of these tools:
-{% for edge in node.out_edges %}
-        - {{ edge.tool_name }}: {{ edge.description }}
-{% endfor %}"""
-        await self.session.generate_reply(instructions=instructions)
-        {% endif %}
+        {# Intentionally do not call generate_reply here. Wait for user input to drive tool selection. #}
 
         {% elif node.type == "function" %}
-        # Execute function task
-        await self._execute_function_task()
+        # Execute function task and handoff via session (LiveKit-aligned)
+        next_agent = await self._execute_function_task()
+        if next_agent:
+            self.session.update_agent(next_agent)
+            return None
         {% endif %}
     
     {% if node.type == "function" and node.function %}
@@ -296,9 +537,15 @@ class {{ node.class_name }}(BaseFlowAgent):
             flow_state.task_results["{{ node.id }}"] = result
             logger.info(f"Task {{ node.function.function_type }} completed: {result}")
             
-            # Brief acknowledgment if successful
-            if result.get("sent") or result.get("transferred") or result.get("ok"):
-                await self.session.say("Done.")
+            # Brief acknowledgment if successful and no immediate transition
+            # (We avoid double-speak if we will auto-advance below)
+            will_auto_advance = False
+            {% if node.out_edges|length == 1 %}
+            {% set edge = node.out_edges[0] %}
+            will_auto_advance = {{ 'True' if edge.next_class_name else 'False' }}
+            {% endif %}
+            if (result.get("sent") or result.get("transferred") or result.get("ok")) and not will_auto_advance:
+                await self.session.say("All set. One moment while I wrap up.")
                 
         except Exception as e:
             logger.error(f"Function task failed: {e}")
@@ -309,28 +556,91 @@ class {{ node.class_name }}(BaseFlowAgent):
         # Single edge - auto-advance
         {% set edge = node.out_edges[0] %}
         {% if edge.next_class_name %}
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "{{ node.id }}",
+                "{{ node.type }}",
+                "{{ edge.from_node_id }}",
+                "{{ edge.to_node_id }}",
+                "{{ edge.edge_id }}",
+                "{{ edge.edge_type }}",
+            )
         return {{ edge.next_class_name }}(job_context=self.job_context)
         {% else %}
-        # Terminal edge
+        # Terminal edge -> EndAgent
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "{{ node.id }}",
+                "{{ node.type }}",
+                "{{ edge.from_node_id }}",
+                None,
+                "{{ edge.edge_id }}",
+                "{{ edge.edge_type }}",
+            )
+        end_spec = FLOW_SPEC.get("__end__")
+        if end_spec and globals().get(end_spec.get("agent_class")):
+            return globals()[end_spec["agent_class"]](job_context=self.job_context)
         await self._handle_terminal()
         return None
         {% endif %}
         {% elif node.out_edges %}
-        # Multiple edges - prompt to continue
-        await self.session.generate_reply(instructions="Call continue_next to proceed")
+        # Multiple edges - route declaratively or await user confirmation
+        if FLOW_GENERATION_MODE == "declarative":
+            next_agent = self._route_to("{{ node.id }}")
+            if next_agent:
+                return next_agent
+        if TEST_MODE:
+            logger.info("[GEN-DEBUG] awaiting_next node_id=%s node_type=%s", "{{ node.id }}", "{{ node.type }}")
+        # In simple mode, wait for user to call continue_next
         {% else %}
         # No edges - terminal
+        if TEST_MODE:
+            logger.info("[GEN-DEBUG] terminal node_id=%s node_type=%s", "{{ node.id }}", "{{ node.type }}")
         await self._handle_terminal()
         {% endif %}
     
     @function_tool
     async def continue_next(self) -> Optional[Agent]:
-        """Continue to next node after function completion"""
+        """Continue to next node after user confirmation or function completion"""
+        if FLOW_GENERATION_MODE == "declarative":
+            next_agent = self._route_to("{{ node.id }}")
+            if next_agent:
+                return next_agent
         {% if node.out_edges %}
         {% set edge = node.out_edges[0] %}
+        {% if edge.next_class_name %}
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "{{ node.id }}",
+                "{{ node.type }}",
+                "{{ edge.from_node_id }}",
+                "{{ edge.to_node_id }}",
+                "{{ edge.edge_id }}",
+                "{{ edge.edge_type }}",
+            )
         return {{ edge.next_class_name }}(job_context=self.job_context)
         {% else %}
+        # Terminal edge
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "{{ node.id }}",
+                "{{ node.type }}",
+                "{{ edge.from_node_id }}",
+                None,
+                "{{ edge.edge_id }}",
+                "{{ edge.edge_type }}",
+            )
+        await self._handle_terminal()
+        return None
+        {% endif %}
+        {% else %}
         # Terminal function node
+        if TEST_MODE:
+            logger.info("[GEN-DEBUG] terminal node_id=%s node_type=%s", "{{ node.id }}", "{{ node.type }}")
         await self._handle_terminal()
         return None
         {% endif %}
@@ -343,11 +653,39 @@ class {{ node.class_name }}(BaseFlowAgent):
     async def {{ edge.tool_name }}(self) -> Optional[Agent]:
         """{{ edge.description }}"""
         flow_state: FlowState = self.session.userdata
+        # First user-driven action: enable preemptive generation for low-latency thereafter
+        self._enable_preemptive_generation()
+        
+        if FLOW_GENERATION_MODE == "declarative":
+            # In declarative mode, prefer central router decision
+            next_agent = self._route_to("{{ node.id }}")
+            if next_agent:
+                return next_agent
         
         {% if edge.next_class_name %}
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "{{ node.id }}",
+                "{{ node.type }}",
+                "{{ edge.from_node_id }}",
+                "{{ edge.to_node_id }}",
+                "{{ edge.edge_id }}",
+                "{{ edge.edge_type }}",
+            )
         return {{ edge.next_class_name }}(job_context=self.job_context)
         {% else %}
         # Terminal edge
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "{{ node.id }}",
+                "{{ node.type }}",
+                "{{ edge.from_node_id }}",
+                None,
+                "{{ edge.edge_id }}",
+                "{{ edge.edge_type }}",
+            )
         await self._handle_terminal()
         return None
         {% endif %}
@@ -442,7 +780,7 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
         {% endif %}
         vad=ctx.proc.userdata["vad"],
-        preemptive_generation=True
+        preemptive_generation=(os.getenv("PREEMPTIVE_FIRST_TURN", "false").lower() == "true")
     )
     
     # Initialize FlowState
