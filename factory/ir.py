@@ -70,9 +70,15 @@ def build_ir(flow: ConversationFlowOut) -> IRFlow:
                 next_class_name = None
                 
             node_ir["out_edges"].append({
+                # Execution/tooling
                 "tool_name": tool_name,
                 "description": description,
                 "next_class_name": next_class_name,
+                # Debug/trace metadata
+                "edge_id": getattr(e, "id", None),
+                "edge_type": getattr(e, "type", None),
+                "from_node_id": getattr(e, "from_node_id", n.id),
+                "to_node_id": getattr(e, "to_node_id", None),
             })
         nodes_ir.append(node_ir)
 

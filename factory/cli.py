@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def run_ruff_formatting(file_path: str) -> None:
     """
-    Run ruff fix and ruff format on a Python file.
+    Run ruff check --fix and ruff format on a Python file.
 
     Args:
         file_path: Path to the Python file to format
@@ -32,15 +32,15 @@ def run_ruff_formatting(file_path: str) -> None:
         return
 
     try:
-        # Run ruff fix to auto-fix issues
+        # Run ruff check --fix to auto-fix issues
         result = subprocess.run(
-            ["ruff", "fix", file_path],
+            ["ruff", "check", "--fix", file_path],
             capture_output=True,
             text=True,
             timeout=30
         )
         if result.returncode != 0:
-            logger.warning(f"ruff fix warnings: {result.stderr}")
+            logger.warning(f"ruff check --fix warnings: {result.stderr}")
 
         # Run ruff format to format code
         result = subprocess.run(

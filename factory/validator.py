@@ -50,7 +50,7 @@ def validate_flow(flow: ConversationFlowOut, strict: bool = True) -> None:
     node_ids = {n.id for n in flow.nodes}
     if len(node_ids) != len(flow.nodes):
         raise FlowValidationError("Duplicate node ids found")
-        
+
     if len(flow.nodes) == 0:
         raise FlowValidationError("Flow must have at least one node")
 
@@ -58,11 +58,13 @@ def validate_flow(flow: ConversationFlowOut, strict: bool = True) -> None:
         raise FlowValidationError("start_node_id must be set")
     if flow.start_node_id not in node_ids:
         raise FlowValidationError("start_node_id not found in nodes")
-        
-    # Validate function nodes
-    _validate_function_nodes(flow, strict)
 
-    # Build adjacency
+    # Validate function nodes and self-loop restrictions
+    _validate_function_nodes(flow, strict)
+    _validate_self_loop_restrictions(flow)
+
+    # Build adjacency for cycle detection (excluding allowed self-loops)
+    node_types = {n.id: n.type for n in flow.nodes}
     adj: Dict[str, Set[str]] = {nid: set() for nid in node_ids}
     for e in flow.edges:
         if e.from_node_id not in node_ids:
@@ -72,7 +74,11 @@ def validate_flow(flow: ConversationFlowOut, strict: bool = True) -> None:
         if e.type == "prompt" and e.to_node_id is None:
             raise FlowValidationError(f"Edge {e.id} prompt edge requires to_node_id")
         if e.to_node_id is not None:
-            adj[e.from_node_id].add(e.to_node_id)
+            # Skip self-loops for conversation nodes in cycle detection
+            is_self_loop = e.from_node_id == e.to_node_id
+            is_conversation_node = node_types.get(e.from_node_id) == "conversation"
+            if not (is_self_loop and is_conversation_node):
+                adj[e.from_node_id].add(e.to_node_id)
 
     if not _toposort(node_ids, adj):
         raise FlowValidationError("Flow contains a cycle; DAG required")
@@ -83,6 +89,19 @@ def validate_flow(flow: ConversationFlowOut, strict: bool = True) -> None:
         # Accept if exists a node with zero outgoing edges
         if not any(len(adj[n]) == 0 for n in node_ids):
             raise FlowValidationError("No terminal path found (skip-to-null or sink node)")
+
+
+def _validate_self_loop_restrictions(flow: ConversationFlowOut) -> None:
+    """Validate that only conversation nodes can have self-loops"""
+    node_types = {n.id: n.type for n in flow.nodes}
+
+    for edge in flow.edges:
+        if edge.from_node_id == edge.to_node_id:  # Self-loop detected
+            node_type = node_types.get(edge.from_node_id)
+            if node_type == "function":
+                raise FlowValidationError(f"Function node {edge.from_node_id} cannot have self-loop (edge {edge.id})")
+            elif node_type != "conversation":
+                raise FlowValidationError(f"Only conversation nodes can have self-loops, found on {node_type} node {edge.from_node_id} (edge {edge.id})")
 
 
 def _validate_function_nodes(flow: ConversationFlowOut, strict: bool) -> None:

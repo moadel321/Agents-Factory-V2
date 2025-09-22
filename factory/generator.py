@@ -126,15 +126,15 @@ class CodeGenerator:
             return
 
         try:
-            # Run ruff fix to auto-fix issues
+            # Run ruff check --fix to auto-fix issues
             result = subprocess.run(
-                ["ruff", "fix", file_path],
+                ["ruff", "check", "--fix", file_path],
                 capture_output=True,
                 text=True,
                 timeout=30
             )
             if result.returncode != 0:
-                logger.warning(f"ruff fix warnings: {result.stderr}")
+                logger.warning(f"ruff check --fix warnings: {result.stderr}")
 
             # Run ruff format to format code
             result = subprocess.run(
