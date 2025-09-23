@@ -590,12 +590,11 @@ class GreetingAgent(BaseFlowAgent):
         )
 
     @function_tool
-    async def confirm_greeting(self) -> Optional[Agent]:
-        """Record fields for greeting and advance."""
+    async def go_proceed_to_collect_pizza_details(self) -> Optional[Agent]:
+        """Customer has provided initial order details or wants to order pizza"""
         flow_state: FlowState = self.session.userdata
-        # Persist provided values (if any)
+        self._enable_preemptive_generation()
 
-        # Advance to the single next step
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("greeting")
             if next_agent:
@@ -627,7 +626,14 @@ class GreetingAgent(BaseFlowAgent):
             Collected Data: {json.dumps(flow_state.slots, indent=2)}
             Task Results: {json.dumps(flow_state.task_results, indent=2)}
             
-            Return strict JSON with the configured analysis items.
+            Return strict JSON with these fields:
+
+            - order_completed (boolean): Whether the customer successfully completed their order
+
+            - customer_satisfaction (selector): Estimated customer satisfaction level
+
+            - total_items (number): Number of items in the order
+
             """
 
             # Call OpenAI for analysis
@@ -673,12 +679,15 @@ class CollectPizzaDetailsAgent(BaseFlowAgent):
         )
 
     @function_tool
-    async def confirm_collect_pizza_details(
-        self, size: str, kind: str
-    ) -> Optional[Agent]:
-        """Record fields for collect_pizza_details and advance."""
+    async def collect(self, size: str, kind: str) -> Optional[Agent]:
+        """Collect and record information for collect_pizza_details.
+        - size (small, medium, large): Pizza size
+        - kind: Pizza type or style
+        """
         flow_state: FlowState = self.session.userdata
-        # Persist provided values (if any)
+        self._enable_preemptive_generation()
+
+        # Save captured values
 
         if size is not None:
             flow_state.set_slot("size", size)
@@ -700,7 +709,7 @@ class CollectPizzaDetailsAgent(BaseFlowAgent):
                     kind,
                 )
 
-        # Advance to the single next step
+        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_pizza_details")
             if next_agent:
@@ -732,7 +741,14 @@ class CollectPizzaDetailsAgent(BaseFlowAgent):
             Collected Data: {json.dumps(flow_state.slots, indent=2)}
             Task Results: {json.dumps(flow_state.task_results, indent=2)}
             
-            Return strict JSON with the configured analysis items.
+            Return strict JSON with these fields:
+
+            - order_completed (boolean): Whether the customer successfully completed their order
+
+            - customer_satisfaction (selector): Estimated customer satisfaction level
+
+            - total_items (number): Number of items in the order
+
             """
 
             # Call OpenAI for analysis
@@ -778,12 +794,14 @@ class CollectToppingsAgent(BaseFlowAgent):
         )
 
     @function_tool
-    async def confirm_collect_toppings(
-        self, toppings: Optional[List[str]] = None
-    ) -> Optional[Agent]:
-        """Record fields for collect_toppings and advance."""
+    async def collect(self, toppings: Optional[List[str]] = None) -> Optional[Agent]:
+        """Collect and record information for collect_toppings.
+        - toppings: Topping item
+        """
         flow_state: FlowState = self.session.userdata
-        # Persist provided values (if any)
+        self._enable_preemptive_generation()
+
+        # Save captured values
 
         if toppings is not None:
             flow_state.set_slot("toppings", list(toppings))
@@ -795,7 +813,7 @@ class CollectToppingsAgent(BaseFlowAgent):
                     toppings,
                 )
 
-        # Advance to the single next step
+        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_toppings")
             if next_agent:
@@ -827,7 +845,14 @@ class CollectToppingsAgent(BaseFlowAgent):
             Collected Data: {json.dumps(flow_state.slots, indent=2)}
             Task Results: {json.dumps(flow_state.task_results, indent=2)}
             
-            Return strict JSON with the configured analysis items.
+            Return strict JSON with these fields:
+
+            - order_completed (boolean): Whether the customer successfully completed their order
+
+            - customer_satisfaction (selector): Estimated customer satisfaction level
+
+            - total_items (number): Number of items in the order
+
             """
 
             # Call OpenAI for analysis
@@ -870,20 +895,50 @@ class AskPickupOrDeliveryAgent(BaseFlowAgent):
         await self.say_or_skip("Will this be pickup or delivery?", False)
 
     @function_tool
-    async def confirm_ask_order_type(self, order_type: str) -> Optional[Agent]:
-        """Record fields for ask_order_type and choose next step."""
+    async def go_proceed_to_address(self) -> Optional[Agent]:
+        """Customer indicated pickup or delivery"""
         flow_state: FlowState = self.session.userdata
-        # Persist provided values (if any)
+        self._enable_preemptive_generation()
 
-        if order_type is not None:
-            flow_state.set_slot("order_type", order_type)
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] slot_set node=%s name=%s value=%r",
-                    "ask_order_type",
-                    "order_type",
-                    order_type,
-                )
+        if FLOW_GENERATION_MODE == "declarative":
+            next_agent = self._route_to("ask_order_type")
+            if next_agent:
+                return next_agent
+
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "ask_order_type",
+                "conversation",
+                "ask_order_type",
+                "collect_address",
+                "edge_1c",
+                "prompt",
+            )
+        return CollectAddressAgent(job_context=self.job_context)
+
+    @function_tool
+    async def go_proceed_to_name(self) -> Optional[Agent]:
+        """User chose pickup; skip address and proceed to name."""
+        flow_state: FlowState = self.session.userdata
+        self._enable_preemptive_generation()
+
+        if FLOW_GENERATION_MODE == "declarative":
+            next_agent = self._route_to("ask_order_type")
+            if next_agent:
+                return next_agent
+
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "ask_order_type",
+                "conversation",
+                "ask_order_type",
+                "collect_name",
+                "edge_1c_pickup",
+                "prompt",
+            )
+        return CollectNameAgent(job_context=self.job_context)
 
     async def _run_post_call_analysis(self):
         """Run post-call analysis if configured"""
@@ -899,7 +954,14 @@ class AskPickupOrDeliveryAgent(BaseFlowAgent):
             Collected Data: {json.dumps(flow_state.slots, indent=2)}
             Task Results: {json.dumps(flow_state.task_results, indent=2)}
             
-            Return strict JSON with the configured analysis items.
+            Return strict JSON with these fields:
+
+            - order_completed (boolean): Whether the customer successfully completed their order
+
+            - customer_satisfaction (selector): Estimated customer satisfaction level
+
+            - total_items (number): Number of items in the order
+
             """
 
             # Call OpenAI for analysis
@@ -944,12 +1006,16 @@ class CollectAddressAgent(BaseFlowAgent):
         )
 
     @function_tool
-    async def confirm_collect_address(
-        self, street: str, city: str, zip: str
-    ) -> Optional[Agent]:
-        """Record fields for collect_address and advance."""
+    async def collect(self, street: str, city: str, zip: str) -> Optional[Agent]:
+        """Collect and record information for collect_address.
+        - street
+        - city
+        - zip
+        """
         flow_state: FlowState = self.session.userdata
-        # Persist provided values (if any)
+        self._enable_preemptive_generation()
+
+        # Save captured values
 
         if street is not None:
             flow_state.set_slot("street", street)
@@ -981,7 +1047,7 @@ class CollectAddressAgent(BaseFlowAgent):
                     zip,
                 )
 
-        # Advance to the single next step
+        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_address")
             if next_agent:
@@ -1013,7 +1079,14 @@ class CollectAddressAgent(BaseFlowAgent):
             Collected Data: {json.dumps(flow_state.slots, indent=2)}
             Task Results: {json.dumps(flow_state.task_results, indent=2)}
             
-            Return strict JSON with the configured analysis items.
+            Return strict JSON with these fields:
+
+            - order_completed (boolean): Whether the customer successfully completed their order
+
+            - customer_satisfaction (selector): Estimated customer satisfaction level
+
+            - total_items (number): Number of items in the order
+
             """
 
             # Call OpenAI for analysis
@@ -1056,10 +1129,14 @@ class CollectNameAgent(BaseFlowAgent):
         await self.say_or_skip("What name should we put on your order?", False)
 
     @function_tool
-    async def confirm_collect_name(self, name: str) -> Optional[Agent]:
-        """Record fields for collect_name and advance."""
+    async def collect(self, name: str) -> Optional[Agent]:
+        """Collect and record information for collect_name.
+        - name
+        """
         flow_state: FlowState = self.session.userdata
-        # Persist provided values (if any)
+        self._enable_preemptive_generation()
+
+        # Save captured values
 
         if name is not None:
             flow_state.set_slot("name", name)
@@ -1071,7 +1148,7 @@ class CollectNameAgent(BaseFlowAgent):
                     name,
                 )
 
-        # Advance to the single next step
+        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_name")
             if next_agent:
@@ -1103,7 +1180,14 @@ class CollectNameAgent(BaseFlowAgent):
             Collected Data: {json.dumps(flow_state.slots, indent=2)}
             Task Results: {json.dumps(flow_state.task_results, indent=2)}
             
-            Return strict JSON with the configured analysis items.
+            Return strict JSON with these fields:
+
+            - order_completed (boolean): Whether the customer successfully completed their order
+
+            - customer_satisfaction (selector): Estimated customer satisfaction level
+
+            - total_items (number): Number of items in the order
+
             """
 
             # Call OpenAI for analysis
@@ -1149,10 +1233,14 @@ class CollectPhoneNumberAgent(BaseFlowAgent):
         )
 
     @function_tool
-    async def confirm_collect_order(self, phone: str) -> Optional[Agent]:
-        """Record fields for collect_order and advance."""
+    async def collect(self, phone: str) -> Optional[Agent]:
+        """Collect and record information for collect_order.
+        - phone
+        """
         flow_state: FlowState = self.session.userdata
-        # Persist provided values (if any)
+        self._enable_preemptive_generation()
+
+        # Save captured values
 
         if phone is not None:
             flow_state.set_slot("phone", phone)
@@ -1164,7 +1252,7 @@ class CollectPhoneNumberAgent(BaseFlowAgent):
                     phone,
                 )
 
-        # Advance to the single next step
+        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_order")
             if next_agent:
@@ -1196,7 +1284,14 @@ class CollectPhoneNumberAgent(BaseFlowAgent):
             Collected Data: {json.dumps(flow_state.slots, indent=2)}
             Task Results: {json.dumps(flow_state.task_results, indent=2)}
             
-            Return strict JSON with the configured analysis items.
+            Return strict JSON with these fields:
+
+            - order_completed (boolean): Whether the customer successfully completed their order
+
+            - customer_satisfaction (selector): Estimated customer satisfaction level
+
+            - total_items (number): Number of items in the order
+
             """
 
             # Call OpenAI for analysis
@@ -1331,7 +1426,14 @@ class SendSmsConfirmationAgent(BaseFlowAgent):
             Collected Data: {json.dumps(flow_state.slots, indent=2)}
             Task Results: {json.dumps(flow_state.task_results, indent=2)}
             
-            Return strict JSON with the configured analysis items.
+            Return strict JSON with these fields:
+
+            - order_completed (boolean): Whether the customer successfully completed their order
+
+            - customer_satisfaction (selector): Estimated customer satisfaction level
+
+            - total_items (number): Number of items in the order
+
             """
 
             # Call OpenAI for analysis
@@ -1377,43 +1479,27 @@ class OrderCompleteAgent(BaseFlowAgent):
         )
 
     @function_tool
-    async def confirm_order_complete(self) -> Optional[Agent]:
-        """Record fields for order_complete and advance."""
+    async def end_conversation(self) -> Optional[Agent]:
+        """End the conversation"""
         flow_state: FlowState = self.session.userdata
-        # Persist provided values (if any)
+        self._enable_preemptive_generation()
 
-        # Advance to the single next step
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("order_complete")
             if next_agent:
                 return next_agent
 
-        # Multiple edges: branch based on captured slots
-        try:
-            edges = FLOW_SPEC.get("order_complete", {}).get("edges", [])
-            next_node_id = None
-
-            if next_node_id:
-                next_spec = FLOW_SPEC.get(next_node_id)
-                if next_spec and globals().get(next_spec.get("agent_class")):
-                    if TEST_MODE:
-                        logger.info(
-                            "[GEN-DEBUG] transition node_id=%s node_type=%s to=%s (multi-edge)",
-                            "order_complete",
-                            "conversation",
-                            next_node_id,
-                        )
-                    return globals()[next_spec["agent_class"]](
-                        job_context=self.job_context
-                    )
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] confirmed node=%s; insufficient info to branch",
-                    "order_complete",
-                )
-        except Exception as _e:
-            if TEST_MODE:
-                logger.debug("branching failed: %s", _e)
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "order_complete",
+                "conversation",
+                "order_complete",
+                None,
+                "edge_4",
+                "skip",
+            )
+        await self._handle_terminal()
         return None
 
     async def _handle_terminal(self):
@@ -1435,7 +1521,14 @@ class OrderCompleteAgent(BaseFlowAgent):
             Collected Data: {json.dumps(flow_state.slots, indent=2)}
             Task Results: {json.dumps(flow_state.task_results, indent=2)}
             
-            Return strict JSON with the configured analysis items.
+            Return strict JSON with these fields:
+
+            - order_completed (boolean): Whether the customer successfully completed their order
+
+            - customer_satisfaction (selector): Estimated customer satisfaction level
+
+            - total_items (number): Number of items in the order
+
             """
 
             # Call OpenAI for analysis

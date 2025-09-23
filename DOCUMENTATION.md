@@ -16,28 +16,10 @@ This approach combines the declarative ease of a visual flow builder with the pe
 
 ---
 
-## End Node and Post-Completion UX
+## Terminal behavior and optional follow‑ups
 
-### EndAgent (Terminal Behavior)
-
-- The generated code includes a small `EndAgent` class and a reserved `FLOW_SPEC["__end__"]` entry.
-- When the router encounters a terminal edge (`to_node_id` is `null`/`None`) or no viable next node, it falls back to `EndAgent`.
-- `EndAgent`:
-  - Speaks a concise goodbye on enter.
-  - Exposes two tools:
-    - `end_conversation()` for a hard end (runs post-call analysis and closes the room as configured).
-    - `go_to_faq()` to handoff to an FAQ/KB node (if present), otherwise ends.
-
-### Post-Completion Prompt (Schema Design)
-
-For more natural UX, add a short post-completion conversation node after confirmations (optional in your JSON):
-
-- `post_completion_prompt` node on-enter text: “Anything else I can help with?”
-- Two edges:
-  - To your FAQ/KB node (e.g., `answer_faq`).
-  - To terminal (no `to_node_id`), which routes to `EndAgent`.
-
-This keeps flows explicit and avoids abrupt endings while allowing follow-up questions.
+- Terminal transitions (`to_node_id: null`) are handled by `_handle_terminal()`, which runs post‑call analysis (if configured) and ends the room.
+- You may add an optional “post‑completion prompt” node (e.g., ask “Anything else I can help with?”) with two edges: one to FAQ/help and one terminal edge.
 
 ---
 
@@ -48,9 +30,18 @@ The factory is built on a Directed Acyclic Graph (DAG) model with support for se
 - **Nodes:** Represent states in the conversation. Each node becomes a dedicated `Agent` class in the generated code.
     - **Conversation Nodes:** Engage in dialogue with the user.
     - **Function Nodes:** Execute backend logic (e.g., send an SMS, transfer a call) via LiveKit `AgentTask`s.
-- **Edges:** Represent the transitions between nodes. Each edge becomes a `@function_tool` that the LLM can call to move the conversation forward.
+- **Edges:** Represent transitions between nodes. Each edge becomes a `@function_tool` the LLM calls to move forward.
 - **FlowState:** A central `dataclass` bound to `session.userdata` that holds all collected information, task results, and the conversation path.
 - **BaseFlowAgent:** A generated base class that centralizes all common logic, such as plugin initialization (STT, TTS, LLM) and utilities.
+
+### Declarative node‑level capture and tools (current design)
+
+- Conversation nodes with declared captures generate a single `collect(...)` tool:
+  - Typed parameters (enum/string/number/boolean; lists via `multi: true`).
+  - Writes values into `FlowState.slots`.
+  - Auto‑advances when the node has exactly one outgoing edge; otherwise returns and awaits an explicit edge tool.
+- For nodes without captures, only edge tools are generated.
+- Multi‑edge routing: the central router does not pick an edge; the LLM must call the chosen edge tool.
 
 ---
 
@@ -163,12 +154,11 @@ If `FACTORY_LOG_LEVEL` is not set:
 ### Flow Generation Mode
 
 - `FLOW_GENERATION_MODE` (optional): `declarative` (default) or `simple`.
-  - `declarative` mode:
-    - A central `FLOW_SPEC` map is emitted (node_id → agent_class, type, edges).
-    - A lightweight router (`_route_to`) uses `FLOW_SPEC` to compute the next Agent.
-    - Conversation nodes do not call the LLM on entry; they wait for user input to drive tool selection.
-  - `simple` mode:
-    - Keeps explicit `go_*` tools per edge returning the next Agent directly.
+  - Declarative mode (recommended):
+    - Emits a `FLOW_SPEC` used by a lightweight router for single‑edge auto‑advance.
+    - For multi‑edge nodes, the router does not choose; an explicit edge tool must be called.
+    - Conversation nodes wait for user input; they do not proactively generate on enter.
+  - Simple mode: legacy; explicit `go_*` tools per edge return the next Agent directly.
 
 ---
 
@@ -247,6 +237,7 @@ This section details the structure of the input JSON file.
 | `allow_interruptions` | boolean | Whether the user can interrupt the agent's speech. |
 | `skip_response` | boolean | If `true`, the agent listens but does not speak. |
 | `llm_overrides`| object | (Optional) Override global `llm_settings` for this node. |
+| `capture` | array | (Optional) Node‑level field captures. Each item: `{ name, type: 'string'|'number'|'boolean'|'enum', enum?: string[], multi?: boolean, required?: boolean, description?: string }`. Generates a single `collect(...)` tool. |
 
 #### `function` (for Function Nodes)
 
@@ -338,7 +329,7 @@ python -m factory.cli validate --input examples/flows/pizza.json
 
 1.  **Parse & Validate:** The CLI reads the input JSON and parses it into Pydantic models (`factory/schema_models.py`). The validator (`factory/validator.py`) then checks for structural integrity, ensures the flow is a valid DAG (no multi-node cycles, but allows self-loops for conversation nodes), and validates settings.
 2.  **Build Intermediate Representation (IR):** The valid flow object is converted into an IR (`factory/ir.py`). This step normalizes data, resolves node/edge relationships, and creates structures optimized for code generation (e.g., generating Python class and tool names).
-3.  **Render Template:** The IR is passed to a Jinja2 template (`factory/templates/agent.jinja2`). This template contains the complete boilerplate for a runnable LiveKit agent, with placeholders for all the dynamic parts of your flow.
+3.  **Render Template:** The IR is passed to a Jinja2 template (`factory/templates/agent.jinja2`). The template emits: `FlowState`, `BaseFlowAgent`, per‑node classes, a `FLOW_SPEC`, and per‑node tools (`collect` and/or edge tools).
 4.  **Write File:** The rendered template is written to a Python file. This file is self-contained and has no runtime dependency on the factory itself.
 5.  **(Optional) Format Code:** If `RUFF_FORMAT=1` is set, the generated file is automatically formatted using `ruff`.
 
@@ -358,9 +349,12 @@ The `agent.jinja2` template is organized into the following sections:
 2.  **FlowState Dataclass**: A static `FlowState` class is defined to manage session state.
 3.  **BaseFlowAgent Class**: A base class that centralizes plugin initialization (STT, TTS, LLM) and utility methods (`say_or_skip`, `_route_to`, `end_call_if_needed`). It reads configuration directly from the `flow` object.
 4.  **Task Implementations**: The Python classes for the built-in tasks (`SendSMSTask`, `TransferCallTask`, `RestWebhookTask`) are included.
-5.  **Declarative FLOW_SPEC**: In `declarative` mode, the template emits a `FLOW_SPEC` (a Python dict) that maps each node to its type, class, and outgoing edges. The central router consults it for transitions, including terminal fallbacks.
-6.  **Generated Agent Classes**: This is the main dynamic section. The template iterates through `flow.nodes` from the IR and generates a dedicated Python class for each node.
-7.  **Entrypoint**: The standard `prewarm` and `entrypoint` functions required to run the agent as a LiveKit worker.
+5.  **Declarative FLOW_SPEC**: Maps each node to its class/type and edges. The router auto‑advances only on single‑edge nodes.
+6.  **Generated Agent Classes**: For each node, a Python class with:
+   - Conversation nodes with captures: one `collect(...)` tool to record values and advance.
+   - Conversation nodes without captures: only edge tools.
+   - Multi‑edge nodes: no router auto‑selection; require an explicit edge tool call.
+7.  **Entrypoint**: Standard `prewarm` and `entrypoint` for a LiveKit worker.
 
 ### How JSON Schema Maps to Template Variables
 
@@ -387,7 +381,7 @@ While modifying the existing `agent.jinja2` is recommended, you could create a n
 
 1.  **Start with the IR**: Your template's logic must be based on the data provided by the Intermediate Representation (IR) builder (`factory/ir.py`). If you need data that isn't there, you must first add it to the `IRFlow` dataclass and the `build_ir` function.
 2.  **Core Loop is Key**: The fundamental structure is iterating through the nodes to create classes: `{% for node in flow.nodes %} ... {% endfor %}`.
-3.  **Transitions are Tool-Based**: Inside the node loop, you must iterate through `node.out_edges` to generate the `@function_tool` methods that represent the valid transitions from that state.
+3.  **Transitions are Tool‑Based**: Inside the node loop, generate `collect(...)` for captures and iterate `node.out_edges` for edge tools.
 4.  **Handle Node Types**: Use `{% if node.type == "..." %}` blocks to generate different `on_enter` logic for different kinds of nodes (e.g., speaking vs. executing a task).
 5.  **Stateless Template**: The template itself should be stateless. All conversational state should be managed through the `FlowState` object and agent handoffs.
 6.  **Implement LiveKit Boilerplate**: A valid template must generate all the necessary LiveKit components: a main `entrypoint`, a `prewarm` function, an `AgentSession` initialization, and the `if __name__ == "__main__":` block to make the agent runnable.
@@ -408,7 +402,7 @@ This directory contains the core logic for parsing, validating, and transforming
 
 -   `__init__.py`: Makes the `factory` directory a Python package.
 -   `cli.py`: Defines the command-line interface (`generate`, `batch`, `validate`) using `click`.
--   `core.py`: Contains the `FlowState` dataclass and `BaseFlowAgent` used in the generated code.
+-   `core.py`: Contains shared concepts; the generated file defines its own `FlowState` and `BaseFlowAgent`.
 -   `generator.py`: Holds the `CodeGenerator` class that orchestrates the Jinja2 template rendering.
 -   `ir.py`: Converts the validated JSON schema into an Intermediate Representation for the template.
 -   `prompts.py`: Helper functions for building dynamic LLM prompts for routing and analysis.
