@@ -172,34 +172,10 @@ class BaseFlowAgent(Agent):
                         return globals()[end_spec["agent_class"]](job_context=self.job_context)
                     return None
             else:
-                # Try trivial guard selection: pick first edge whose implied slots exist
-                # (Keep it minimal; clarify via LLM otherwise)
-                flow_state: FlowState = self.session.userdata
-                next_node_id = None
-                for e in edges:
-                    if e.get("to_node_id"):
-                        next_node_id = e["to_node_id"]
-                        if TEST_MODE:
-                            logger.info(
-                                "[GEN-DEBUG] router_select from=%s to=%s edge_id=%s edge_type=%s",
-                                current_node_id,
-                                next_node_id,
-                                e.get("edge_id"),
-                                e.get("edge_type"),
-                            )
-                        break
-                if next_node_id is None:
-                    # No viable target -> EndAgent
-                    if TEST_MODE:
-                        logger.info(
-                            "[GEN-DEBUG] router_terminal from=%s to=%s (EndAgent)",
-                            current_node_id,
-                            None,
-                        )
-                    end_spec = FLOW_SPEC.get("__end__")
-                    if end_spec and globals().get(end_spec.get("agent_class")):
-                        return globals()[end_spec["agent_class"]](job_context=self.job_context)
-                    return None
+                # Multiple edges: do not make a naive choice here; the explicit tool determines the path
+                if TEST_MODE:
+                    logger.info("[GEN-DEBUG] router_multi_edges current=%s - awaiting explicit tool", current_node_id)
+                return None
 
             next_spec = FLOW_SPEC.get(next_node_id)
             if not next_spec:
@@ -508,9 +484,20 @@ class {{ node.class_name }}(BaseFlowAgent):
             {% if node.function.function_type == "sms" %}
             task = SendSMSTask(self.session)
             # Extract parameters from function schema or default values
+            to_phone = flow_state.get_slot("phone", "")
+            body = flow_state.get_slot("message", "")
+            if not body:
+                # Generic fallback: summarize collected slots
+                try:
+                    slots_copy = dict(flow_state.slots)
+                    # remove internal flags if present
+                    slots_copy.pop("_preemptive_enabled", None)
+                    body = "Order details: " + json.dumps(slots_copy)
+                except Exception:
+                    body = "Order details unavailable"
             result = await task.run(
-                to=flow_state.get_slot("phone", ""),
-                body=flow_state.get_slot("message", ""),
+                to=to_phone,
+                body=body,
                 timeout_ms={{ node.function.timeout_ms or 10000 }},
                 retries={{ node.function.retries or 0 }}
             )
@@ -648,6 +635,56 @@ class {{ node.class_name }}(BaseFlowAgent):
     {% endif %}
 
     {% if node.type == "conversation" %}
+    {# Combined confirm-and-advance tool (declarative style) #}
+    {% if node.capture and node.capture|length > 0 %}
+    {% set has_single_edge = (node.out_edges|length == 1) %}
+    {% if has_single_edge %}{% set single_edge = node.out_edges[0] %}{% endif %}
+    @function_tool
+    async def confirm_{{ node.id | replace(' ', '_') | replace('-', '_') | replace('.', '_') }}(
+        self{% for cap in node.capture %}{% set py_type = 'str' %}{% if cap.type == 'number' %}{% set py_type = 'float' %}{% elif cap.type == 'boolean' %}{% set py_type = 'bool' %}{% else %}{% set py_type = 'str' %}{% endif %},
+        {% if cap.multi %}{{ cap.name | replace(' ', '_') | replace('-', '_') | replace('.', '_') }}: Optional[List[str]] = None{% else %}{% if cap.required %}{{ cap.name | replace(' ', '_') | replace('-', '_') | replace('.', '_') }}: {{ py_type }}{% else %}{{ cap.name | replace(' ', '_') | replace('-', '_') | replace('.', '_') }}: Optional[{{ py_type }}] = None{% endif %}{% endif %}{% endfor %}
+    ) -> Optional[Agent]:
+        """Record all fields for {{ node.id }} and {{ 'advance' if has_single_edge else 'then choose the next step' }}.
+        {% for cap in node.capture %}- {{ cap.name }}{% if cap.enum %} (allowed: {{ cap.enum }}){% endif %}{% if cap.description %}: {{ cap.description }}{% endif %}
+        {% endfor %}"""
+        flow_state: FlowState = self.session.userdata
+        # Persist provided values
+        {% for cap in node.capture %}
+        {% set pname = cap.name | replace(' ', '_') | replace('-', '_') | replace('.', '_') %}
+        {% if cap.multi %}
+        if {{ pname }} is not None:
+            flow_state.set_slot("{{ cap.name }}", list({{ pname }}))
+        {% else %}
+        if {{ pname }} is not None:
+            flow_state.set_slot("{{ cap.name }}", {{ pname }})
+        {% endif %}
+        {% endfor %}
+        {% if has_single_edge %}
+        # Advance to the single next step
+        if FLOW_GENERATION_MODE == "declarative":
+            next_agent = self._route_to("{{ node.id }}")
+            if next_agent:
+                return next_agent
+        {% if single_edge.next_class_name %}
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "{{ node.id }}",
+                "{{ node.type }}",
+                "{{ single_edge.from_node_id }}",
+                "{{ single_edge.to_node_id }}",
+                "{{ single_edge.edge_id }}",
+                "{{ single_edge.edge_type }}",
+            )
+        return {{ single_edge.next_class_name }}(job_context=self.job_context)
+        {% else %}
+        # Multiple edges: confirm only; LLM must call the desired edge tool next
+        if TEST_MODE:
+            logger.info("[GEN-DEBUG] confirmed node=%s; awaiting edge tool", "{{ node.id }}")
+        return None
+        {% endif %}
+    {% endif %}
+    {% endif %}
     {% for edge in node.out_edges %}
     @function_tool
     async def {{ edge.tool_name }}(self) -> Optional[Agent]:

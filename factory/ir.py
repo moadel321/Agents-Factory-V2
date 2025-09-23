@@ -48,6 +48,18 @@ def build_ir(flow: ConversationFlowOut) -> IRFlow:
             "on_enter_text": n.settings.on_enter_text if n.settings.on_enter_type == "prompt" else None,
             "skip_response": n.settings.skip_response,
             "out_edges": [],
+            # Node-level capture fields (optional)
+            "capture": [
+                {
+                    "name": f.name,
+                    "type": getattr(f, "type", "string"),
+                    "enum": getattr(f, "enum", None),
+                    "multi": getattr(f, "multi", False),
+                    "required": getattr(f, "required", False),
+                    "description": getattr(f, "description", None),
+                }
+                for f in (n.settings.capture or [])
+            ],
         }
         if n.type == "function" and n.function is not None:
             node_ir["function"] = {

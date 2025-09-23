@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 """
-Visualize a Conversation Flow JSON as a Graphviz diagram.
+Visualize a Conversation Flow JSON as a Mermaid diagram and HTML viewer.
+
+Always writes two outputs next to the chosen base path:
+  - <base>.mmd   (Mermaid source)
+  - <base>.html  (self-contained viewer using Mermaid from CDN)
 
 Usage:
-  python visualize_flow.py --input examples/pizza_flow.json --output flow.svg
+  # Write pizza_flow.mmd and pizza_flow.html next to the JSON
+  python visualize_flow.py --input examples/flows/pizza_flow.json
 
-If Graphviz binaries are not available, the script falls back to writing a DOT file.
+  # Choose an explicit base path (creates my_flow.mmd and my_flow.html)
+  python visualize_flow.py --input examples/flows/pizza_flow.json --output my_flow
+
+  # Adjust layout direction (TB|LR|BT|RL). TB tends to be less wide.
+  python visualize_flow.py --input examples/flows/pizza_flow.json --direction TB
 """
 import argparse
 import json
-import os
-import shutil
-import subprocess
-import tempfile
+import html as htmlmod
 from pathlib import Path
 from typing import Optional
 
-try:
-    from graphviz import Digraph
-    HAS_GRAPHVIZ = True
-except Exception:
-    HAS_GRAPHVIZ = False
-
+ 
 # Prefer using the project's schema models for robust parsing/validation
 from factory.schema_models import ConversationFlowOut
 
@@ -37,107 +38,63 @@ def load_flow(flow_path: str) -> ConversationFlowOut:
     return flow
 
 
-def _truncate(text: Optional[str], max_len: int = 120) -> str:
+def _mescape(text: Optional[str]) -> str:
+    """Escape text for embedding inside Mermaid labels/blocks."""
     if not text:
         return ""
-    return text if len(text) <= max_len else text[: max_len - 1] + "…"
+    return text.replace("\n", " ").replace('"', '\\"')
 
 
-def build_graph(flow: ConversationFlowOut, fmt: str = "svg") -> "Digraph":
-    """Build a Graphviz Digraph from the flow definition."""
-    g = Digraph(
-        comment=f"Flow: {flow.name} ({flow.url_id})",
-        format=fmt,
-        graph_attr={
-            "rankdir": "LR",
-            "concentrate": "true",
-            "fontsize": "11",
-            "labelloc": "t",
-            "label": f"{flow.name}\\nURL ID: {flow.url_id}",
-        },
-        node_attr={"fontsize": "10", "style": "filled", "fillcolor": "white"},
-        edge_attr={"fontsize": "9"},
-    )
+def build_mermaid(flow: ConversationFlowOut, direction: str = "TB") -> str:
+    """Build Mermaid flowchart source from the flow definition."""
+    lines = [f"flowchart {direction}"]
 
-    # Legend / flow-level settings
-    legend_lines = []
-    legend_lines.append(f"LLM: {flow.llm_settings.model} (temp={flow.llm_settings.temperature})")
-    legend_lines.append(f"STT: {flow.stt_settings.provider} {flow.stt_settings.language}")
+    # Legend
+    legend = []
+    legend.append(f"LLM: {flow.llm_settings.model} (temp={flow.llm_settings.temperature})")
+    legend.append(f"STT: {flow.stt_settings.provider} {flow.stt_settings.language}")
     tts_desc = getattr(flow.tts_settings, "model", None) or getattr(flow.tts_settings, "tts_provider", "")
     voice_id = getattr(flow.tts_settings, "voice_id", None)
-    if voice_id:
-        legend_lines.append(f"TTS: {tts_desc} voice={voice_id}")
-    else:
-        legend_lines.append(f"TTS: {tts_desc}")
+    legend.append(f"TTS: {tts_desc}{' voice=' + voice_id if voice_id else ''}")
     if flow.call_settings:
-        legend_lines.append(
+        legend.append(
             f"Call: who={flow.call_settings.who_speaks_first}, silence={flow.call_settings.end_call_on_silence_ms}ms, max={flow.call_settings.max_call_duration_ms}ms"
         )
     if flow.post_call_analysis:
-        legend_lines.append(
+        legend.append(
             f"Post-call analysis: {flow.post_call_analysis.model} ({len(flow.post_call_analysis.analysis_items)} items)"
         )
+    lines.append("  subgraph Legend")
+    joined_legend = "\n".join(legend)
+    lines.append(f"    legend[\"{_mescape(joined_legend)}\"]")
+    lines.append("  end")
 
-    with g.subgraph(name="cluster_legend") as c:
-        c.attr(label="Legend", fontsize="11")
-        c.node(
-            "legend",
-            label="\n".join(legend_lines) or "Flow settings",
-            shape="note",
-            fillcolor="lightgray",
-        )
+    # Conversation nodes
+    conv_nodes = [n for n in flow.nodes if n.type == "conversation"]
+    if conv_nodes:
+        lines.append("  subgraph Conversation")
+        for n in conv_nodes:
+            title = f"{n.name} ({n.id})"
+            lines.append(f"    {n.id}[\"{_mescape(title)}\"]")
+        lines.append("  end")
 
-    # Nodes
-    node_id_to_graph_id = {}
-    for n in flow.nodes:
-        is_conversation = n.type == "conversation"
-        is_function = n.type == "function"
+    # Function nodes
+    func_nodes = [n for n in flow.nodes if n.type == "function"]
+    if func_nodes:
+        lines.append("  subgraph Function")
+        for n in func_nodes:
+            title = f"{n.name} ({n.id})"
+            lines.append(f"    {n.id}(\"{_mescape(title)}\")")
+        lines.append("  end")
 
-        title = f"{n.name}\\n({n.id})"
-        if is_conversation:
-            details = []
-            details.append("Type: conversation")
-            enter_text = _truncate(n.settings.on_enter_text)
-            if n.settings.on_enter_type == "prompt" and enter_text:
-                details.append(f"On enter: {enter_text}")
-            if n.settings.llm_overrides:
-                ov = n.settings.llm_overrides
-                parts = []
-                if ov.model:
-                    parts.append(f"model={ov.model}")
-                if ov.temperature is not None:
-                    parts.append(f"temp={ov.temperature}")
-                details.append("Overrides: " + ", ".join(parts))
-            label = title + ("\\n" + "\\n".join(details) if details else "")
-            shape = "box"
-            fill = "#E6F2FF"  # light blue
-        elif is_function and n.function is not None:
-            details = [
-                "Type: function",
-                f"func={n.function.function_type}",
-                f"timeout={n.function.timeout_ms}ms retries={n.function.retries}",
-            ]
-            label = title + "\\n" + "\\n".join(details)
-            shape = "ellipse"
-            fill = "#FFF4CC"  # light yellow
-        else:
-            label = title + "\\nType: unknown"
-            shape = "box"
-            fill = "white"
+    # END node if any terminal edges
+    if any(e.to_node_id is None for e in flow.edges):
+        lines.append("  END[END]")
 
-        g.node(n.id, label=label, shape=shape, fillcolor=fill)
-        node_id_to_graph_id[n.id] = n.id
-
-    # Explicit END node only if needed
-    needs_end = any(e.to_node_id is None for e in flow.edges)
-    if needs_end:
-        g.node("__END__", label="END", shape="doublecircle", fillcolor="#EEEEEE")
-
-    # Edges
+    # Edges with labels
     for e in flow.edges:
         src = e.from_node_id
-        dst = e.to_node_id if e.to_node_id is not None else "__END__"
-
+        dst = e.to_node_id if e.to_node_id is not None else "END"
         prompt = e.settings.prompt if e.settings else ""
         name = getattr(e.settings, "name", None) if e.settings else None
         label_parts = []
@@ -145,161 +102,74 @@ def build_graph(flow: ConversationFlowOut, fmt: str = "svg") -> "Digraph":
             label_parts.append(name)
         if prompt:
             label_parts.append(prompt)
-        label = " — ".join(label_parts) if label_parts else e.type
-
-        style = "dashed" if e.type == "skip" else "solid"
-        g.edge(src, dst, label=label, style=style)
-
-    return g
-
-
-def build_dot_string(flow: ConversationFlowOut) -> str:
-    """Build a plain DOT string for the flow (fallback when rendering is unavailable)."""
-    lines = ["digraph flow {", "rankdir=LR;", "concentrate=true;"]
-    lines.append(
-        f"label=\"{flow.name}\\nURL ID: {flow.url_id}\"; labelloc=t; fontsize=11;"
-    )
-
-    # Nodes
-    for n in flow.nodes:
-        title = f"{n.name}\\n({n.id})"
-        if n.type == "conversation":
-            enter_text = _truncate(n.settings.on_enter_text)
-            parts = ["Type: conversation"]
-            if n.settings.on_enter_type == "prompt" and enter_text:
-                parts.append(f"On enter: {enter_text}")
-            label = title + ("\\n" + "\\n".join(parts) if parts else "")
-            lines.append(f'"{n.id}" [shape=box, style=filled, fillcolor="#E6F2FF", label="{label}"];')
-        elif n.type == "function" and n.function is not None:
-            parts = [
-                "Type: function",
-                f"func={n.function.function_type}",
-                f"timeout={n.function.timeout_ms}ms retries={n.function.retries}",
-            ]
-            label = title + "\\n" + "\\n".join(parts)
-            lines.append(f'"{n.id}" [shape=ellipse, style=filled, fillcolor="#FFF4CC", label="{label}"];')
+        if not label_parts and e.to_node_id is None:
+            label_parts.append("(terminal)")
+        label = " — ".join(label_parts)
+        if label:
+            lines.append(f"  {src} -- \"{_mescape(label)}\" --> {dst}")
         else:
-            lines.append(f'"{n.id}" [shape=box, label="{title}\\nType: unknown"];')
+            lines.append(f"  {src} --> {dst}")
 
-    needs_end = any(e.to_node_id is None for e in flow.edges)
-    if needs_end:
-        lines.append('"__END__" [shape=doublecircle, style=filled, fillcolor="#EEEEEE", label="END"];')
-
-    # Edges
-    for e in flow.edges:
-        src = e.from_node_id
-        dst = e.to_node_id if e.to_node_id is not None else "__END__"
-        prompt = e.settings.prompt if e.settings else ""
-        name = getattr(e.settings, "name", None) if e.settings else None
-        label_parts = []
-        if name:
-            label_parts.append(name)
-        if prompt:
-            label_parts.append(prompt)
-        label = " — ".join(label_parts) if label_parts else e.type
-        style = "dashed" if e.type == "skip" else "solid"
-        lines.append(f'"{src}" -> "{dst}" [label="{label}", style={style}];')
-
-    lines.append("}")
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
 
 
-def locate_dot_executable() -> Optional[str]:
-    """Locate Graphviz dot executable if present."""
-    # Env override
-    env_dot = os.getenv("GRAPHVIZ_DOT")
-    if env_dot and os.path.exists(env_dot):
-        return env_dot
-    # PATH
-    which = shutil.which("dot")
-    if which:
-        return which
-    # Common Windows paths
-    candidates = [
-        r"C:\\Program Files\\Graphviz\\bin\\dot.exe",
-        r"C:\\Program Files (x86)\\Graphviz\\bin\\dot.exe",
-    ]
-    for c in candidates:
-        if os.path.exists(c):
-            return c
-    return None
+def write_mermaid_html(mermaid_text: str, out_path: Path) -> None:
+    """Write a minimal standalone HTML viewer for a Mermaid diagram."""
+    escaped = htmlmod.escape(mermaid_text, quote=False)
+    html = f"""<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+  <title>Mermaid Diagram</title>
+  <style>body{{margin:0;padding:16px;background:#fff}} .mermaid{{font-family:ui-sans-serif,system-ui,sans-serif}}</style>
+  <script type=\"module\">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({{ startOnLoad: true }});
+  </script>
+  <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';\">
+  </head>
+<body>
+<pre class=\"mermaid\">{escaped}</pre>
+</body>
+</html>
+"""
+    out_path.write_text(html, encoding="utf-8")
+
+
+def _compute_base_output_path(input_path: str, output_hint: Optional[str]) -> Path:
+    """Determine base path (without extension) for outputs."""
+    if output_hint:
+        base = Path(output_hint)
+        if base.is_dir():
+            return base / Path(input_path).stem
+        if base.suffix in {".mmd", ".html"}:
+            return base.with_suffix("")
+        return base
+    return Path(input_path).with_suffix("")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Visualize a conversation flow JSON with Graphviz")
+    parser = argparse.ArgumentParser(description="Visualize a conversation flow JSON as Mermaid + HTML")
     parser.add_argument("--input", "-i", required=True, help="Path to the flow JSON file")
-    parser.add_argument("--output", "-o", help="Output diagram path (e.g., flow.svg, flow.png, flow.dot)")
-    parser.add_argument(
-        "--format",
-        "-f",
-        choices=["svg", "png", "pdf", "dot"],
-        default="png",
-        help="Output format (default: png)",
-    )
+    parser.add_argument("--output", "-o", help="Output base path (creates <base>.mmd and <base>.html)")
+    parser.add_argument("--direction", choices=["TB", "LR", "BT", "RL"], default="TB", help="Mermaid layout direction (default: TB)")
     args = parser.parse_args()
-    
-    # Set Graphviz path if not found in PATH
-    if HAS_GRAPHVIZ and not os.getenv("GRAPHVIZ_DOT"):
-        graphviz_paths = [
-            r"C:\Program Files\Graphviz\bin\dot.exe",
-            r"C:\Program Files (x86)\Graphviz\bin\dot.exe",
-        ]
-        for path in graphviz_paths:
-            if os.path.exists(path):
-                os.environ["GRAPHVIZ_DOT"] = path
-                break
 
     flow = load_flow(args.input)
 
-    # Determine output path
-    out_path = Path(args.output) if args.output else Path(args.input).with_suffix(f".{args.format}")
+    base = _compute_base_output_path(args.input, args.output)
 
-    # If DOT requested explicitly, write DOT and exit
-    if args.format == "dot":
-        dot_text = build_dot_string(flow)
-        out_path.write_text(dot_text, encoding="utf-8")
-        print(f"Wrote DOT file to {out_path}")
-        return 0
+    # Generate Mermaid
+    mmd_text = build_mermaid(flow, direction=args.direction)
+    mmd_path = base.with_suffix(".mmd")
+    mmd_path.write_text(mmd_text, encoding="utf-8")
+    print(f"Wrote Mermaid file to {mmd_path}")
 
-    # Try rendering with graphviz; if system binaries are missing, fall back to DOT
-    try:
-        g = build_graph(flow, fmt=args.format)
-        # Render to the exact output path; graphviz adds extensions if using render()
-        # Use pipe to write directly
-        binary = g.pipe(format=args.format)
-        out_path.write_bytes(binary)
-        print(f"Wrote diagram to {out_path}")
-        return 0
-    except Exception as e:
-        print(f"Python graphviz render failed ({e}); trying system 'dot'.")
-
-    # Fallback: try system dot
-    dot_exe = locate_dot_executable()
-    if dot_exe:
-        dot_text = build_dot_string(flow)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".dot") as tf:
-            tf.write(dot_text.encode("utf-8"))
-            temp_dot = tf.name
-        try:
-            cmd = [dot_exe, f"-T{args.format}", temp_dot, "-o", str(out_path)]
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            if proc.returncode != 0:
-                raise RuntimeError(proc.stderr or proc.stdout)
-            print(f"Wrote diagram to {out_path}")
-            return 0
-        except Exception as e:
-            print(f"System 'dot' render failed ({e}).")
-        finally:
-            try:
-                os.unlink(temp_dot)
-            except Exception:
-                pass
-
-    # Last resort: write DOT next to requested output
-    dot_text = build_dot_string(flow)
-    fallback_path = out_path.with_suffix(".dot")
-    fallback_path.write_text(dot_text, encoding="utf-8")
-    print(f"Graphviz not available; wrote DOT file to {fallback_path}. Use 'dot -T{args.format} {fallback_path} -o {out_path}' to render.")
+    # Generate HTML viewer
+    html_path = base.with_suffix(".html")
+    write_mermaid_html(mmd_text, html_path)
+    print(f"Wrote Mermaid HTML viewer to {html_path}")
     return 0
 
 

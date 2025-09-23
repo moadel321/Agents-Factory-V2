@@ -99,6 +99,15 @@ class GlobalSettings(BaseModel):
 
 
 class ConversationSettings(BaseModel):
+    class CaptureField(BaseModel):
+        name: str
+        # primitive types + enum support; lists via multi=true of a primitive
+        type: Literal["string", "number", "boolean", "enum"] = "string"
+        enum: Optional[list[str]] = None
+        multi: Optional[bool] = False
+        required: Optional[bool] = False
+        description: Optional[str] = None
+
     class FinetuneExample(BaseModel):
         class ConversationExample(BaseModel):
             speaker: Literal["user", "agent"]
@@ -113,6 +122,8 @@ class ConversationSettings(BaseModel):
     skip_response: bool
     finetune_examples: list[FinetuneExample]
     llm_overrides: Optional[LLMSimpleOverrides]
+    # Optional: declare fields to capture at this node (node-level persistence)
+    capture: Optional[list[CaptureField]] = None
 
 
 class EdgePrompt(BaseModel):
