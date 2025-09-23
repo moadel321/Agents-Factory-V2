@@ -1,2 +1,6 @@
 *.pyc
 *.env
+.cursorignore
+factory/__pycache__/
+__pycache__
+*.mcp.json
