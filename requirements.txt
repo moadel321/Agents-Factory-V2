@@ -9,3 +9,6 @@ livekit-plugins-google~=1.2
 livekit-plugins-noise-cancellation~=0.2
 python-dotenv
 graphviz
+jinja2>=3.1
+pydantic>=2.7
+click>=8.1

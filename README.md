@@ -47,12 +47,15 @@ Your voice AI agent is now running and ready for connections!
 
 ---
 
+## Table of Contents
+
 
 - [LiveKit Agents Factory: JSON to Code Generator](#livekit-agents-factory-json-to-code-generator)
   - [Quick Start](#quick-start)
     - [1. Environment Setup](#1-environment-setup)
     - [2. Configure API Keys](#2-configure-api-keys)
     - [3. Generate and Run Agent](#3-generate-and-run-agent)
+  - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
   - [Terminal behavior and optional follow‑ups](#terminal-behavior-and-optional-followups)
   - [Key Concepts](#key-concepts)
