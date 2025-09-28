@@ -1,4 +1,11 @@
-livekit-agents[deepgram,openai,cartesia,silero,turn-detector, elevenlabs]~=1.2
+livekit-agents[deepgram,openai,cartesia,silero,turn-detector,elevenlabs,aws,azure,google]~=1.2
+# Explicit plugin packages to ensure all providers in schema are available
+livekit-plugins-openai~=1.2
+livekit-plugins-elevenlabs~=1.2
+livekit-plugins-deepgram~=1.2
+livekit-plugins-aws~=1.2
+livekit-plugins-azure~=1.2
+livekit-plugins-google~=1.2
 livekit-plugins-noise-cancellation~=0.2
 python-dotenv
 graphviz

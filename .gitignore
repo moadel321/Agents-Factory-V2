@@ -1,5 +1,8 @@
 *.pyc
 *.env
+.ruff_cache/
+.claude/
+
 .cursorignore
 factory/__pycache__/
 __pycache__

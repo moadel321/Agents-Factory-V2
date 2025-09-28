@@ -1,5 +1,96 @@
 # LiveKit Agents Factory: JSON to Code Generator
 
+## Quick Start
+
+Get up and running in minutes:
+
+### 1. Environment Setup
+```bash
+# Create virtual environment (macOS/Linux)
+uv venv
+source .venv/bin/activate
+
+# Create virtual environment (Windows)
+uv venv
+.venv\Scripts\activate
+
+# Install dependencies
+uv pip install -r requirements.txt
+```
+
+### 2. Configure API Keys
+```bash
+# Copy example environment file
+cp .env.example .env  # macOS/Linux
+copy .env.example .env  # Windows
+
+# Edit .env file with your API keys:
+# - OPENAI_API_KEY
+# - DEEPGRAM_API_KEY
+# - ELEVENLABS_API_KEY
+# - LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
+```
+
+### 3. Generate and Run Agent
+```bash
+# Generate agent from JSON flow
+python -m factory.cli generate -i flows/pizza_flow.json
+
+# Visualize the flow (optional)
+python visualize_flow.py -i flows/pizza_flow.json
+
+# Run the generated agent
+python generated/agent_pizza_ordering.py dev
+```
+
+Your voice AI agent is now running and ready for connections!
+
+---
+
+
+- [LiveKit Agents Factory: JSON to Code Generator](#livekit-agents-factory-json-to-code-generator)
+  - [Quick Start](#quick-start)
+    - [1. Environment Setup](#1-environment-setup)
+    - [2. Configure API Keys](#2-configure-api-keys)
+    - [3. Generate and Run Agent](#3-generate-and-run-agent)
+  - [Overview](#overview)
+  - [Terminal behavior and optional follow‑ups](#terminal-behavior-and-optional-followups)
+  - [Key Concepts](#key-concepts)
+    - [Declarative node‑level capture and tools (current design)](#declarative-nodelevel-capture-and-tools-current-design)
+  - [Getting Started: A 3-Step Guide](#getting-started-a-3-step-guide)
+    - [Step 1: Create a Flow Definition File](#step-1-create-a-flow-definition-file)
+    - [Step 2: Configure Your Environment](#step-2-configure-your-environment)
+    - [Step 3: Generate and Run the Agent](#step-3-generate-and-run-the-agent)
+  - [Test Mode](#test-mode)
+  - [Runtime Flags and Modes](#runtime-flags-and-modes)
+    - [Logging and Debugging](#logging-and-debugging)
+    - [Turn-Taking and Preemptive Generation](#turn-taking-and-preemptive-generation)
+  - [The Flow JSON Schema](#the-flow-json-schema)
+    - [Root Object](#root-object)
+    - [`stt_settings`](#stt_settings)
+    - [`tts_settings` (ElevenLabs or AWS Polly)](#tts_settings-elevenlabs-or-aws-polly)
+    - [`llm_settings` (OpenAI)](#llm_settings-openai)
+    - [`call_settings`](#call_settings)
+    - [Node Object](#node-object)
+      - [`settings` (for Conversation Nodes)](#settings-for-conversation-nodes)
+      - [`function` (for Function Nodes)](#function-for-function-nodes)
+    - [Edge Object](#edge-object)
+      - [`settings` (for Edges)](#settings-for-edges)
+    - [Self-Loops for FAQ Patterns](#self-loops-for-faq-patterns)
+  - [CLI Usage](#cli-usage)
+    - [`generate`](#generate)
+    - [`batch`](#batch)
+    - [`validate`](#validate)
+  - [How it Works: Under the Hood](#how-it-works-under-the-hood)
+  - [The Jinja2 Template (`factory/templates/agent.jinja2`)](#the-jinja2-template-factorytemplatesagentjinja2)
+    - [High-Level Structure](#high-level-structure)
+    - [How JSON Schema Maps to Template Variables](#how-json-schema-maps-to-template-variables)
+  - [Project Structure \& File Explanations](#project-structure--file-explanations)
+    - [`/factory/`](#factory)
+
+
+
+---
 ## Overview
 
 This factory is a code generation tool designed to rapidly create and deploy stateful, voice-first conversational AI agents on the LiveKit platform. It solves the problem of repeatedly building similar agent scaffolding for different business logic by adopting a "convention over configuration" approach.
@@ -11,7 +102,6 @@ This approach combines the declarative ease of a visual flow builder with the pe
 **Core Principles:**
 - **Declarative Flow:** Define *what* the conversation should do in JSON.
 - **Codegen for Performance:** The factory writes the *how* in optimized Python code.
-- **Voice-First:** Built-in latency-sensitive patterns like VAD, preemptive generation, and streaming TTS.
 - **Extensible:** While providing built-in tasks, the generated code is clean Python that can be easily customized.
 
 ---
@@ -49,7 +139,7 @@ The factory is built on a Directed Acyclic Graph (DAG) model with support for se
 
 ### Step 1: Create a Flow Definition File
 
-First, create a JSON file (e.g., `my_pizza_flow.json`) that describes your agent. This file must adhere to the factory's schema. You can start by copying one of the provided examples in `examples/flows/`.
+First, create a JSON file (e.g., `my_pizza_flow.json`) that describes your agent. This file must adhere to the factory's schema. You can start by copying one of the provided examples in `flows/` (e.g., `flows/pizza_flow.json`).
 
 *For a detailed breakdown of all fields, see the **Flow JSON Schema** section below.*
 
@@ -65,8 +155,20 @@ LIVEKIT_URL=wss://your-project.livekit.cloud
 LIVEKIT_API_KEY=...
 LIVEKIT_API_SECRET=...
 
-# Required for STT (currently defaults to Deepgram)
+# STT (defaults supported: Deepgram; also supports Azure and AWS)
 DEEPGRAM_API_KEY=...
+
+# Optional: Azure Speech (for Azure STT)
+AZURE_SPEECH_KEY=...
+AZURE_SPEECH_REGION=...
+
+# Optional: AWS (for AWS Polly TTS and Amazon Transcribe STT)
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+
+# Optional: Google/Gemini LLM (when llm_settings.provider=google)
+GOOGLE_API_KEY=...
 
 # Optional: For built-in tasks
 SIP_TRUNK_ID=... # For call transfers
@@ -90,7 +192,7 @@ Use the provided CLI to generate the Python file from your JSON definition. Run 
 
 ```bash
 # 1. Generate the agent
-python -m factory.cli generate --input examples/flows/pizza_flow.json --output generated/agent_pizza.py
+python -m factory.cli generate --input flows/pizza_flow.json --output generated/agent_pizza.py
 
 # 2. (Optional) The generator will auto-format if RUFF_FORMAT=1 is in your .env
 #    Or you can format it manually:
@@ -99,6 +201,11 @@ python -m ruff format generated/agent_pizza.py
 # 3. Run the agent worker
 python generated/agent_pizza.py dev
 ```
+
+CLI tips:
+- Print code to stdout (no file):
+  - `python -m factory.cli generate -i flows/pizza_flow.json --stdout`
+  - JSON-wrapped stdout: `--stdout --format json`
 
 Your agent is now running and ready to accept connections from your LiveKit instance.
 
@@ -151,14 +258,6 @@ If `FACTORY_LOG_LEVEL` is not set:
   - First turn: the agent speaks only the node’s `on_enter_text` and waits for the user (no proactive LLM call).
   - After the first user-driven tool call, the agent enables `preemptive_generation` automatically for snappier follow-up turns.
 
-### Flow Generation Mode
-
-- `FLOW_GENERATION_MODE` (optional): `declarative` (default) or `simple`.
-  - Declarative mode (recommended):
-    - Emits a `FLOW_SPEC` used by a lightweight router for single‑edge auto‑advance.
-    - For multi‑edge nodes, the router does not choose; an explicit edge tool must be called.
-    - Conversation nodes wait for user input; they do not proactively generate on enter.
-  - Simple mode: legacy; explicit `go_*` tools per edge return the next Agent directly.
 
 ---
 
@@ -189,24 +288,25 @@ This section details the structure of the input JSON file.
 
 | Key | Type | Description |
 |---|---|---|
-| `provider` | string | One of `google`, `aws`, `azure`. *(Note: currently defaults to Deepgram implementation)*. |
+| `provider` | string | One of `google`, `aws`, `azure`, `deepgram`. |
 | `language` | string | Language code, e.g., `en-US`. |
+| `model` | string/null | (Optional) STT model name for providers that support models (e.g., `nova-3` for Deepgram). |
 
-### `tts_settings` (ElevenLabs)
+### `tts_settings` (ElevenLabs or AWS Polly)
 
 | Key | Type | Description |
 |---|---|---|
-| `tts_provider`| string | Must be `elevenlabs`. |
-| `model` | string | ElevenLabs model ID, e.g., `eleven_multilingual_v2`. |
-| `voice_id` | string | The ID of the voice to use. |
-| `voice_settings`| object | ElevenLabs voice settings (`stability`, `similarity_boost`, etc.). |
+| `tts_provider`| string | `elevenlabs` or `aws`. |
+| `model` | string | ElevenLabs model ID (e.g., `eleven_multilingual_v2`). For AWS, maps to the Polly engine/model (e.g., `neural`). |
+| `voice_id` | string | Voice identifier (ElevenLabs voice ID or Polly voice name). |
+| `voice_settings`| object | ElevenLabs voice settings (`stability`, `similarity_boost`, etc.). Optional for AWS. |
 
 ### `llm_settings` (OpenAI)
 
 | Key | Type | Description |
 |---|---|---|
-| `provider` | string | Must be `openai`. |
-| `model` | string | OpenAI model ID, e.g., `gpt-4o-mini`. |
+| `provider` | string | One of `openai`, `azure`, `google`. |
+| `model` | string | Model ID (e.g., `gpt-4.1`, `gpt-4o-mini`, `gemini-2.5-flash-lite`). |
 | `temperature`| number | Sampling temperature for the LLM. |
 | `max_tokens`| integer | (Optional) Max output tokens. |
 
@@ -361,7 +461,7 @@ The `agent.jinja2` template is organized into the following sections:
 The `build_ir` function (`factory/ir.py`) transforms your JSON flow into a `flow` object that is directly accessible within the template. Here’s how the JSON properties are used:
 
 -   **`flow.url_id`, `flow.name`, `flow.instructions`**: Used for logging, comments, and the root instructions for the `BaseFlowAgent`.
--   **`flow.llm`, `flow.tts`, `flow.stt_provider`**: These objects contain the normalized settings used to instantiate the `livekit.plugins` within `BaseFlowAgent` and the `entrypoint`.
+-   **`flow.llm`, `flow.tts`, `flow.stt`**: These objects contain the normalized settings used to instantiate the `livekit.plugins` within `BaseFlowAgent` and the `entrypoint`.
 -   **`flow.nodes` (Loop)**: The template iterates over this list. For each `node` in the list:
     -   `node.class_name`: Becomes the Python class name (e.g., `GreetingAgent`).
     -   `node.type`: Controls the logic inside the `on_enter` method. An `{% if node.type == "conversation" %}` block generates dialogue-focused code, while an `elif` handles function execution. Function nodes now perform handoff via `session.update_agent(next_agent)` immediately after the task completes (LiveKit-aligned), rather than returning an Agent from `on_enter`.
@@ -375,21 +475,7 @@ The `build_ir` function (`factory/ir.py`) transforms your JSON flow into a `flow
 
 The mapping is direct and predictable. The structure of your JSON `nodes` and `edges` arrays directly corresponds to the generated Python classes and the `@function_tool` methods that connect them.
 
-### Creating a New Workflow Template from Scratch
 
-While modifying the existing `agent.jinja2` is recommended, you could create a new one. Here are the principles to follow:
-
-1.  **Start with the IR**: Your template's logic must be based on the data provided by the Intermediate Representation (IR) builder (`factory/ir.py`). If you need data that isn't there, you must first add it to the `IRFlow` dataclass and the `build_ir` function.
-2.  **Core Loop is Key**: The fundamental structure is iterating through the nodes to create classes: `{% for node in flow.nodes %} ... {% endfor %}`.
-3.  **Transitions are Tool‑Based**: Inside the node loop, generate `collect(...)` for captures and iterate `node.out_edges` for edge tools.
-4.  **Handle Node Types**: Use `{% if node.type == "..." %}` blocks to generate different `on_enter` logic for different kinds of nodes (e.g., speaking vs. executing a task).
-5.  **Stateless Template**: The template itself should be stateless. All conversational state should be managed through the `FlowState` object and agent handoffs.
-6.  **Implement LiveKit Boilerplate**: A valid template must generate all the necessary LiveKit components: a main `entrypoint`, a `prewarm` function, an `AgentSession` initialization, and the `if __name__ == "__main__":` block to make the agent runnable.
-7.  **Example**: To add a new function type called `"database_query"`, you would:
-    -   Update the `function_type` `Literal` in `factory/schema_models.py`.
-    -   Add logic to `factory/validator.py` to validate its required parameters.
-    -   Add a `DatabaseQueryTask` class to `factory/tasks.py`.
-    -   In the template, add an `{% elif node.function.function_type == "database_query" %}` block inside `_execute_function_task` to instantiate and run your new task.
 
 ---
 
@@ -410,8 +496,5 @@ This directory contains the core logic for parsing, validating, and transforming
 -   `tasks.py`: Contains the concrete `AgentTask` implementations for built-in functions (SMS, Call Transfer, etc.).
 -   `validator.py`: Provides functions to validate the integrity, structure, and logic of a flow JSON.
 -   `templates/agent.jinja2`: The Jinja2 template that defines the structure of the generated Python agent file.
+    - Provider-aware selection of STT (Azure/AWS/Deepgram), LLM (OpenAI/Azure/Gemini), and TTS (ElevenLabs/AWS Polly) based on `stt_settings`, `llm_settings`, and `tts_settings`.
 
-### `/codegen/`
-This directory contains the standalone script to run the code generation process.
-
--   `generate.py`: A simple script that calls the factory's core logic to generate an agent from a JSON file.
