@@ -84,7 +84,10 @@ def cli(ctx, verbose):
               help='Strict validation including environment checks')
 @click.option('--template-dir', '-t', 
               help='Custom template directory')
-def generate(input_file, output_file, output_dir, validate, strict, template_dir):
+@click.option('--stdout', is_flag=True, help='Print generated code to STDOUT instead of writing a file')
+@click.option('--format', 'out_format', type=click.Choice(['text', 'json']), default='text',
+              help='STDOUT format when using --stdout (default: text)')
+def generate(input_file, output_file, output_dir, validate, strict, template_dir, stdout, out_format):
     """Generate an agent from a flow definition file"""
     try:
         logger.info(f"Generating agent from {input_file}")
@@ -102,26 +105,41 @@ def generate(input_file, output_file, output_dir, validate, strict, template_dir
             validate_flow(flow, strict=strict)
             logger.info("Flow validation passed")
         
-        # Determine output path
-        if not output_file:
-            output_file = os.path.join(output_dir, f"agent_{flow.url_id}.py")
-        
-        # Generate code
         generator = CodeGenerator(template_dir)
-        code = generator.generate_agent(flow, output_file, validate=False)  # Already validated
-        
-        # Validate generated code
-        code_issues = validate_generated_code(code)
-        if code_issues:
-            logger.warning("Generated code validation issues:")
-            for issue in code_issues:
-                logger.warning(f"  - {issue}")
-        
-        # Format the generated code
-        run_ruff_formatting(output_file)
 
-        logger.info(f"Successfully generated agent: {output_file}")
-        click.echo(f"Generated agent saved to: {output_file}")
+        if stdout:
+            # Generate but do not write to disk
+            code = generator.generate_agent(flow, None, validate=False)
+            # Validate generated code
+            code_issues = validate_generated_code(code)
+            if code_issues:
+                logger.warning("Generated code validation issues:")
+                for issue in code_issues:
+                    logger.warning(f"  - {issue}")
+            # Print to STDOUT
+            if out_format == 'json':
+                click.echo(json.dumps({"code": code}))
+            else:
+                click.echo(code)
+        else:
+            # Determine output path
+            if not output_file:
+                output_file = os.path.join(output_dir, f"agent_{flow.url_id}.py")
+
+            code = generator.generate_agent(flow, output_file, validate=False)
+
+            # Validate generated code
+            code_issues = validate_generated_code(code)
+            if code_issues:
+                logger.warning("Generated code validation issues:")
+                for issue in code_issues:
+                    logger.warning(f"  - {issue}")
+
+            # Format the generated code
+            run_ruff_formatting(output_file)
+
+            logger.info(f"Successfully generated agent: {output_file}")
+            click.echo(f"Generated agent saved to: {output_file}")
         
     except FileNotFoundError as e:
         click.echo(f"Error: Input file not found: {e}", err=True)

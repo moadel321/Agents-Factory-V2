@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 # --- Providers ---
-STT_PROVIDERS = Literal["google", "aws", "azure"]
+STT_PROVIDERS = Literal["google", "aws", "azure", "deepgram"]
 TTS_PROVIDERS = Literal["aws", "elevenlabs"]
 LLM_PROVIDERS = Literal["openai", "azure", "google"]
 POST_CALL_ANALYSIS_TYPES = Literal["boolean", "text", "number", "selector"]
@@ -20,6 +20,8 @@ class CallSettings(BaseModel):
 class STTSettings(BaseModel):
     provider: STT_PROVIDERS
     language: Literal["en-US", "ar-SA"]
+    # Optional explicit model for providers that support multiple models (e.g., deepgram "nova-3")
+    model: Optional[str] = None
 
 
 class AWSTTSSettings(BaseModel):
@@ -56,7 +58,8 @@ TTSSettings = Annotated[
 
 class LLMSettings(BaseModel):
     provider: LLM_PROVIDERS
-    model: Literal["gpt-4.1", "azure-gpt-4.1", "gpt-4o", "gpt-4o-mini"]
+    # Allow broader model names to support Gemini and future variants while validator enforces per-provider if needed
+    model: str
     temperature: float
     max_tokens: Optional[int]
 

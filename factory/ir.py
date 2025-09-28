@@ -105,10 +105,12 @@ def build_ir(flow: ConversationFlowOut) -> IRFlow:
             "model": flow.llm_settings.model,
             "temperature": flow.llm_settings.temperature,
             "max_tokens": flow.llm_settings.max_tokens,
+            "provider": flow.llm_settings.provider,
         },
         tts={
             "model": getattr(flow.tts_settings, "model", "eleven_multilingual_v2"),
             "voice_id": getattr(flow.tts_settings, "voice_id", None),
+            "provider": getattr(flow.tts_settings, "tts_provider", None),
         },
         post_call_analysis=getattr(flow, "post_call_analysis", None),
         call_settings=getattr(flow, "call_settings", None),

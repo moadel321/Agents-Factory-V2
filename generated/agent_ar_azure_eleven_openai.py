@@ -8,6 +8,20 @@ from livekit.agents import JobContext, WorkerOptions, cli
 from livekit.agents.llm import function_tool
 from livekit.agents.voice import Agent, AgentSession
 from livekit.plugins import deepgram, openai, elevenlabs, silero
+
+# Optional provider plugins; import guarded by usage
+try:
+    from livekit.plugins import azure
+except Exception:
+    azure = None
+try:
+    from livekit.plugins import aws
+except Exception:
+    aws = None
+try:
+    from livekit.plugins import google
+except Exception:
+    google = None
 from livekit import api
 import aiohttp
 import asyncio
@@ -16,7 +30,7 @@ import asyncio
 # Load .env then .env.local (allow .env.local to override)
 load_dotenv()
 load_dotenv(".env.local", override=True)
-logger = logging.getLogger("pizza_ordering-agent")
+logger = logging.getLogger("pizza_ordering_setB-agent")
 # Resolve log level: explicit FACTORY_LOG_LEVEL wins; otherwise DEBUG in test mode; else INFO
 _env_level = (os.getenv("FACTORY_LOG_LEVEL") or "").upper()
 _level_map = {
@@ -80,19 +94,21 @@ class BaseFlowAgent(Agent):
 
         # Initialize plugins based on flow settings
 
-        # TODO: Wire Google STT when available
-        logger.warning("Google STT not yet wired, using Deepgram fallback")
-        stt = deepgram.STT(model="nova-2")
+        stt = deepgram.STT(model="nova-3")
 
-        llm = openai.LLM(
-            model="gpt-4o-mini",
-            temperature=0.7,
-        )
+        if google is None:
+            logger.warning("Google/Gemini plugin not available; defaulting to OpenAI")
+            llm = openai.LLM(model="gemini-2.5-flash-lite", temperature=0.7)
+        else:
+            llm = google.LLM(
+                model="gemini-2.5-flash-lite",
+                temperature=0.7,
+            )
 
         tts = elevenlabs.TTS(
             api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
-            model="eleven_flash_v2_5",
-            voice_id="21m00Tcm4TlvDq8ikWAM",
+            model="None",
+            voice_id="Joanna",
         )
 
         super().__init__(
@@ -1554,20 +1570,44 @@ def prewarm(proc):
 async def entrypoint(ctx: JobContext) -> None:
     """Main entrypoint for the generated agent"""
     # Logging setup
-    ctx.log_context_fields = {"room": ctx.room.name, "flow": "pizza_ordering"}
+    ctx.log_context_fields = {"room": ctx.room.name, "flow": "pizza_ordering_setB"}
 
     # Create agent session with proper configuration
-    session = AgentSession(
-        llm=openai.LLM(
-            model="gpt-4o-mini",
+    # LLM selection
+
+    if google is None:
+        _llm = openai.LLM(
+            model="gemini-2.5-flash-lite",
             temperature=0.7,
-        ),
-        stt=deepgram.STT(model="nova-2"),
-        tts=elevenlabs.TTS(
+        )
+    else:
+        _llm = google.LLM(
+            model="gemini-2.5-flash-lite",
+            temperature=0.7,
+        )
+
+    # STT selection
+
+    _stt = deepgram.STT(model="nova-3")
+
+    # TTS selection
+
+    if aws is None:
+        _tts = elevenlabs.TTS(
             api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
-            model="eleven_flash_v2_5",
-            voice_id="21m00Tcm4TlvDq8ikWAM",
-        ),
+            model="None",
+        )
+    else:
+        _tts = aws.TTS(
+            voice="Joanna",
+            speech_engine="neural",
+            language=os.getenv("AWS_TTS_LANGUAGE") or "en-US",
+        )
+
+    session = AgentSession(
+        llm=_llm,
+        stt=_stt,
+        tts=_tts,
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=(
             os.getenv("PREEMPTIVE_FIRST_TURN", "false").lower() == "true"

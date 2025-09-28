@@ -9,6 +9,19 @@ from livekit.agents import JobContext, WorkerOptions, cli
 from livekit.agents.llm import function_tool
 from livekit.agents.voice import Agent, AgentSession
 from livekit.plugins import deepgram, openai, elevenlabs, silero
+# Optional provider plugins; import guarded by usage
+try:
+    from livekit.plugins import azure
+except Exception:
+    azure = None
+try:
+    from livekit.plugins import aws
+except Exception:
+    aws = None
+try:
+    from livekit.plugins import google
+except Exception:
+    google = None
 from livekit import api
 import aiohttp
 import asyncio
@@ -77,40 +90,84 @@ class BaseFlowAgent(Agent):
         self.job_context = job_context
         
         # Initialize plugins based on flow settings
-        {% if flow.stt_provider == "google" %}
-        # TODO: Wire Google STT when available
-        logger.warning("Google STT not yet wired, using Deepgram fallback")
-        stt = deepgram.STT(model="nova-2")
-        {% elif flow.stt_provider == "aws" %}
-        # TODO: Wire AWS STT when available
-        logger.warning("AWS STT not yet wired, using Deepgram fallback")
-        stt = deepgram.STT(model="nova-2")
-        {% elif flow.stt_provider == "azure" %}
-        # TODO: Wire Azure STT when available
-        logger.warning("Azure STT not yet wired, using Deepgram fallback")
-        stt = deepgram.STT(model="nova-2")
+        {% if flow.stt.provider == 'azure' %}
+        if azure is None:
+            logger.warning("Azure STT plugin not available, falling back to Deepgram")
+            stt = deepgram.STT(model="nova-2")
+        else:
+            stt = azure.STT(language="{{ flow.stt.language }}")
+        {% elif flow.stt.provider == 'aws' %}
+        if aws is None:
+            logger.warning("AWS STT plugin not available, falling back to Deepgram")
+            stt = deepgram.STT(model="nova-2")
+        else:
+            stt = aws.STT(language="{{ flow.stt.language }}")
+        {% elif flow.stt.provider == 'deepgram' %}
+        stt = deepgram.STT(model="{{ flow.stt.model or 'nova-3' }}")
         {% else %}
         stt = deepgram.STT(model="nova-2")
         {% endif %}
 
+        {% if flow.llm.provider == 'openai' %}
         llm = openai.LLM(
             model="{{ flow.llm.model }}",
             temperature={{ flow.llm.temperature }},
             {% if flow.llm.max_tokens %}max_output_tokens={{ flow.llm.max_tokens }}{% endif %}
         )
-        
+        {% elif flow.llm.provider == 'azure' %}
+        # Azure OpenAI via OpenAI plugin .with_azure if configured; otherwise fallback to OpenAI
+        if hasattr(openai.LLM, 'with_azure'):
+            llm = openai.LLM.with_azure(
+                azure_deployment=os.getenv('AZURE_OPENAI_DEPLOYMENT') or '{{ flow.llm.model }}',
+                azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
+                api_key=os.getenv('AZURE_OPENAI_API_KEY'),
+                api_version=os.getenv('OPENAI_API_VERSION') or '2024-10-01-preview',
+                temperature={{ flow.llm.temperature }},
+                max_output_tokens={{ flow.llm.max_tokens or 'None' }}
+            )
+        else:
+            llm = openai.LLM(model="{{ flow.llm.model }}", temperature={{ flow.llm.temperature }})
+        {% elif flow.llm.provider == 'google' %}
+        if google is None:
+            logger.warning("Google/Gemini plugin not available; defaulting to OpenAI")
+            llm = openai.LLM(model="{{ flow.llm.model }}", temperature={{ flow.llm.temperature }})
+        else:
+            llm = google.LLM(
+                model="{{ flow.llm.model }}",
+                temperature={{ flow.llm.temperature }},
+                {% if flow.llm.max_tokens %}max_output_tokens={{ flow.llm.max_tokens }}{% endif %}
+            )
+        {% else %}
+        llm = openai.LLM(model="{{ flow.llm.model }}", temperature={{ flow.llm.temperature }})
+        {% endif %}
 
+        {% if flow.tts.provider == 'aws' %}
+        {% if aws is not None %}
+        tts = aws.TTS(
+            voice="{{ flow.tts.voice_id or (os.getenv('AWS_TTS_VOICE') or 'Joanna') }}",
+            speech_engine="{{ flow.tts.speech_engine or (os.getenv('AWS_TTS_ENGINE') or 'neural') }}",
+            language=os.getenv('AWS_TTS_LANGUAGE') or 'en-US'
+        )
+        {% else %}
+        logger.warning("AWS TTS plugin not available, falling back to ElevenLabs")
+        tts = elevenlabs.TTS(
+            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY"))
+            {% if flow.tts.model %}, model="{{ flow.tts.model }}"{% else %}, model="eleven_multilingual_v2"{% endif %}
+        )
+        {% endif %}
+        {% else %}
         {% if flow.tts.voice_id %}
         tts = elevenlabs.TTS(
-            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
-            model="{{ flow.tts.model }}",
+            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY"))
+            {% if flow.tts.model %}, model="{{ flow.tts.model }}"{% endif %},
             voice_id="{{ flow.tts.voice_id }}"
         )
         {% else %}
         tts = elevenlabs.TTS(
-            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
-            model="{{ flow.tts.model }}"
+            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY"))
+            {% if flow.tts.model %}, model="{{ flow.tts.model }}"{% endif %}
         )
+        {% endif %}
         {% endif %}
         
 
@@ -801,31 +858,66 @@ async def entrypoint(ctx: JobContext) -> None:
     }
     
     # Create agent session with proper configuration
-    session = AgentSession(
-        llm=openai.LLM(
-            model="{{ flow.llm.model }}",
+    # LLM selection
+    {% if flow.llm.provider == 'openai' %}
+    _llm = openai.LLM(model="{{ flow.llm.model }}", temperature={{ flow.llm.temperature }}, {% if flow.llm.max_tokens %}max_output_tokens={{ flow.llm.max_tokens }}{% endif %})
+    {% elif flow.llm.provider == 'azure' %}
+    # Prefer Azure OpenAI if available; otherwise fallback to standard OpenAI
+    try:
+        _llm = openai.LLM.with_azure(
+            azure_deployment=os.getenv('AZURE_OPENAI_DEPLOYMENT') or '{{ flow.llm.model }}',
+            azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
+            api_key=os.getenv('AZURE_OPENAI_API_KEY'),
+            api_version=os.getenv('OPENAI_API_VERSION') or '2024-10-01-preview',
             temperature={{ flow.llm.temperature }},
-            {% if flow.llm.max_tokens %}max_output_tokens={{ flow.llm.max_tokens }}{% endif %}
-        ),
-        {% if flow.stt_provider == "google" %}
-        stt=deepgram.STT(model="nova-2"),
-        {% elif flow.stt_provider == "aws" %}
-        stt=deepgram.STT(model="nova-2"),  # Fallback to deepgram
-        {% else %}
-        stt=deepgram.STT(model="nova-2"),
-        {% endif %}
-        {% if flow.tts.voice_id %}
-        tts=elevenlabs.TTS(
-            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
-            model="{{ flow.tts.model }}",
-            voice_id="{{ flow.tts.voice_id }}"
-        ),
-        {% else %}
-        tts=elevenlabs.TTS(
-            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
-            model="{{ flow.tts.model }}"
-        ),
-        {% endif %}
+            max_output_tokens={{ flow.llm.max_tokens or 'None' }}
+        )
+    except Exception:
+        _llm = openai.LLM(model="{{ flow.llm.model }}", temperature={{ flow.llm.temperature }})
+    {% elif flow.llm.provider == 'google' %}
+    if google is None:
+        _llm = openai.LLM(model="{{ flow.llm.model }}", temperature={{ flow.llm.temperature }}, {% if flow.llm.max_tokens %}max_output_tokens={{ flow.llm.max_tokens }}{% endif %})
+    else:
+        _llm = google.LLM(model="{{ flow.llm.model }}", temperature={{ flow.llm.temperature }}, {% if flow.llm.max_tokens %}max_output_tokens={{ flow.llm.max_tokens }}{% endif %})
+    {% else %}
+    _llm = openai.LLM(model="{{ flow.llm.model }}", temperature={{ flow.llm.temperature }})
+    {% endif %}
+
+    # STT selection
+    {% if flow.stt.provider == 'azure' %}
+    if azure is None:
+        _stt = deepgram.STT(model='nova-2')
+    else:
+        _stt = azure.STT(language='{{ flow.stt.language }}')
+    {% elif flow.stt.provider == 'aws' %}
+    if aws is None:
+        _stt = deepgram.STT(model='nova-2')
+    else:
+        _stt = aws.STT(language='{{ flow.stt.language }}')
+    {% elif flow.stt.provider == 'deepgram' %}
+    _stt = deepgram.STT(model='{{ flow.stt.model or 'nova-3' }}')
+    {% else %}
+    _stt = deepgram.STT(model='nova-2')
+    {% endif %}
+
+    # TTS selection
+    {% if flow.tts.provider == 'aws' %}
+    if aws is None:
+        _tts = elevenlabs.TTS(api_key=(os.getenv('ELEVEN_API_KEY') or os.getenv('ELEVENLABS_API_KEY')), model='{{ flow.tts.model }}')
+    else:
+        _tts = aws.TTS(voice='{{ flow.tts.voice_id or (os.getenv('AWS_TTS_VOICE') or 'Joanna') }}', speech_engine='{{ flow.tts.speech_engine or (os.getenv('AWS_TTS_ENGINE') or 'neural') }}', language=os.getenv('AWS_TTS_LANGUAGE') or 'en-US')
+    {% else %}
+    {% if flow.tts.voice_id %}
+    _tts = elevenlabs.TTS(api_key=(os.getenv('ELEVEN_API_KEY') or os.getenv('ELEVENLABS_API_KEY')), model='{{ flow.tts.model }}', voice_id='{{ flow.tts.voice_id }}')
+    {% else %}
+    _tts = elevenlabs.TTS(api_key=(os.getenv('ELEVEN_API_KEY') or os.getenv('ELEVENLABS_API_KEY')), model='{{ flow.tts.model }}')
+    {% endif %}
+    {% endif %}
+
+    session = AgentSession(
+        llm=_llm,
+        stt=_stt,
+        tts=_tts,
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=(os.getenv("PREEMPTIVE_FIRST_TURN", "false").lower() == "true")
     )

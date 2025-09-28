@@ -169,9 +169,24 @@ class CodeGenerator:
                 "url_id": flow.url_id,
                 "name": flow.name,
                 "instructions": flow.instructions,
-                "stt_provider": ir.stt_provider,
-                "llm": ir.llm,
-                "tts": ir.tts,
+                # Provider settings (normalized for template)
+                "stt": {
+                    "provider": flow.stt_settings.provider,
+                    "language": flow.stt_settings.language,
+                    "model": getattr(flow.stt_settings, "model", None),
+                },
+                "llm": {
+                    "provider": flow.llm_settings.provider,
+                    "model": flow.llm_settings.model,
+                    "temperature": flow.llm_settings.temperature,
+                    "max_tokens": flow.llm_settings.max_tokens,
+                },
+                "tts": (lambda ts: {
+                    "provider": getattr(ts, "tts_provider", None),
+                    "model": getattr(ts, "model", None),
+                    "voice_id": getattr(ts, "voice_id", None),
+                    "speech_engine": getattr(ts, "speech_engine", None),
+                })(flow.tts_settings),
                 "nodes": ir.nodes,
                 "start_class_name": ir.start_class_name,
                 "post_call_analysis": self._build_post_call_analysis_context(flow)
