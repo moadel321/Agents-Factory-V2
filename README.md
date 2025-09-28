@@ -90,6 +90,8 @@ Your voice AI agent is now running and ready for connections!
     - [How JSON Schema Maps to Template Variables](#how-json-schema-maps-to-template-variables)
   - [Project Structure \& File Explanations](#project-structure--file-explanations)
     - [`/factory/`](#factory)
+  - [Schema changes performed](#schema-changes-performed)
+    - [Structural differences (original-schema.json → current schema used by flows)](#structural-differences-original-schemajson--current-schema-used-by-flows)
 
 
 
@@ -500,4 +502,43 @@ This directory contains the core logic for parsing, validating, and transforming
 -   `validator.py`: Provides functions to validate the integrity, structure, and logic of a flow JSON.
 -   `templates/agent.jinja2`: The Jinja2 template that defines the structure of the generated Python agent file.
     - Provider-aware selection of STT (Azure/AWS/Deepgram), LLM (OpenAI/Azure/Gemini), and TTS (ElevenLabs/AWS Polly) based on `stt_settings`, `llm_settings`, and `tts_settings`.
+
+
+---
+
+## Schema changes performed
+
+### Structural differences (original-schema.json → current schema used by flows)
+
+- **STT providers and fields**  
+  original: `STT_PROVIDERS = ["google","aws"]`; no `model` field.  
+  current: `["google","aws","azure","deepgram"]` and `STTSettings.model` optional (e.g., Deepgram `nova-3`).
+
+- **TTS (ElevenLabs/AWS)**  
+  original: ElevenLabs `model: str` (free-form); AWS Polly supported.  
+  current: ElevenLabs `model` is a strict Literal set (`eleven_multilingual_v2`, `eleven_flash_v2_5`, etc.); AWS Polly still supported. `voice_settings` fields are optional (`style`/`speed`/`use_speaker_boost`) instead of `Union[..., None]`.
+
+- **LLM settings**  
+  original: `model` Literal constrained to `['gpt-4.1','azure-gpt-4.1']`.  
+  current: `model: str` (unconstrained to support OpenAI, Azure OpenAI, Gemini, etc.); `provider` unchanged (`openai|azure|google`).
+
+- **Post‑call analysis**  
+  original: `model` limited to `gpt-4.1`, `gpt-4.1-mini`.  
+  current: expanded to `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o`, `gpt-4o-mini`; `analysis_items` unchanged semantically.
+
+- **Conversation settings**  
+  original: no `llm_overrides`, no structured captures.  
+  current: adds `llm_overrides` (per-node LLM tweaks) and `capture` fields (typed, enum, multi, required, description).
+
+- **Function nodes support**  
+  original: `NodeOut` lacks a `function` configuration; function behavior not modeled.  
+  current: adds `FunctionSettings` and `NodeOut.function` (supports `sms`, `call_transfer`, `rest_webhook` + JSON schema, timeout, retries).
+
+- **Edges**  
+  original: `EdgePrompt` has only `prompt`.  
+  current: adds optional `name` to `EdgePrompt` (used to generate stable tool names).
+
+- **Flow**  
+  both: include `call_settings`, `begin_position`, `start_node_id` (optional), `nodes`, `edges`.  
+  current validator behavior (not schema fields): enforces DAG, allows conversation self‑loops, forbids multi‑node cycles.
 

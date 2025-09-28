@@ -1,0 +1,150 @@
+from datetime import datetime
+from typing import Annotated, Literal, Union
+
+from pydantic import BaseModel, Field
+
+= Literal["google", "aws"]STT_PROVIDERS 
+
+TTS_PROVIDERS = Literal["aws", "elevenlabs"]
+
+LLM_PROVIDERS = Literal["openai", "azure", "google"]
+
+POST_CALL_ANALYSIS_TYPES = Literal["boolean", "text", "number", "selector"]
+
+
+class CallSettings(BaseModel):
+    who_speaks_first: Literal["user", "agent"]
+    end_call_on_silence_ms: int
+    max_call_duration_ms: int
+
+
+class STTSettings(BaseModel):
+    provider: STT_PROVIDERS
+    language: Literal["en-US", "ar-SA"]
+
+
+class AWSTTSSettings(BaseModel):
+    tts_provider: Literal["aws"]
+    voice_id: str
+    speech_engine: Literal["neural"]
+
+
+class ElevenLabsTTSSettings(BaseModel):
+    class VoiceSettings(BaseModel):
+        stability: float
+        similarity_boost: float
+        style: Union[float, None]
+        speed: Union[float, None]
+        use_speaker_boost: Union[bool, None]
+
+    tts_provider: Literal["elevenlabs"]
+    model: str
+    voice_id: str
+    voice_settings: VoiceSettings
+
+
+TTSSettings = Annotated[
+    Union[AWSTTSSettings, ElevenLabsTTSSettings],
+    Field(discriminator="tts_provider")
+]
+
+
+class LLMSettings(BaseModel):
+    provider: LLM_PROVIDERS
+    model: Literal['gpt-4.1', 'azure-gpt-4.1']
+    temperature: float
+    max_tokens: Union[int, None]
+
+
+class PostCallAnalysisItem(BaseModel):
+    name: str
+    description: str
+    type: POST_CALL_ANALYSIS_TYPES
+    selector_options: Union[list[str], None]
+
+
+class PostCallAnalysisSettings(BaseModel):
+    model: Literal['gpt-4.1', 'gpt-4.1-mini']
+    analysis_items: list[PostCallAnalysisItem]
+
+
+class DisplayPosition(BaseModel):
+    x: float
+    y: float
+
+
+class GlobalSettings(BaseModel):
+    class FinetuneExample(BaseModel):
+        class ConversationExample(BaseModel):
+            speaker: Literal["user", "agent"]
+            text: str
+
+        type: Literal["jump", 'not_jump']
+        conversations: list[ConversationExample]
+
+    prompt: str
+    finetune_examples: list[FinetuneExample]
+
+
+class ConversationSettings(BaseModel):
+    class FinetuneExample(BaseModel):
+        class ConversationExample(BaseModel):
+            speaker: Literal["user", "agent"]
+            text: str
+
+        type: Literal["conversation"]
+        conversations: list[ConversationExample]
+
+    on_enter_text: str
+    on_enter_type: Literal["prompt", "static"]
+    allow_interruptions: bool
+    skip_response: bool
+    finetune_examples: list[FinetuneExample]
+
+
+class EdgePrompt(BaseModel):
+    prompt: str
+
+
+class NodeOut(BaseModel):
+    id: str
+    created: datetime
+    updated: datetime
+
+    name: str
+    is_global: bool
+    global_settings: Union[GlobalSettings, None]
+    position: DisplayPosition
+    type: Literal["conversation", "function"]
+    settings: ConversationSettings
+
+
+class EdgeOut(BaseModel):
+    id: str
+    created: datetime
+    updated: datetime
+
+    from_node_id: str
+    to_node_id: Union[str, None]
+    type: Literal["prompt", "skip"]
+    settings: Union[EdgePrompt, None]
+
+
+class ConversationFlowOut(BaseModel):
+    id: str
+    url_id: str
+    created: datetime
+    updated: datetime
+
+    name: str
+    instructions: str
+    stt_settings: STTSettings
+    tts_settings: TTSSettings
+    llm_settings: LLMSettings
+    call_settings: CallSettings
+    post_call_analysis: Union[PostCallAnalysisSettings, None]
+    begin_position: DisplayPosition
+    start_node_id: Union[str, None]
+
+    nodes: list[NodeOut]
+    edges: list[EdgeOut]
