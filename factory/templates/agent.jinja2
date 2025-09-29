@@ -26,6 +26,23 @@ from livekit import api
 import aiohttp
 import asyncio
 
+# Safe formatting helpers for templated bodies
+class _SafeSlots(dict):
+    def __missing__(self, key):
+        return '{' + key + '}'
+
+def _format_nested(value, mapping):
+    if isinstance(value, str):
+        try:
+            return value.format_map(mapping)
+        except Exception:
+            return value
+    if isinstance(value, dict):
+        return {k: _format_nested(v, mapping) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_format_nested(v, mapping) for v in value]
+    return value
+
 # Load environment and configure logger
 # Load .env then .env.local (allow .env.local to override)
 load_dotenv()
@@ -399,10 +416,11 @@ class {{ node.class_name }}(BaseFlowAgent):
             method = "{{ node.method }}"
             headers = {{ node.headers | jsonify }}
 
-            # Interpolate body template with slots if provided
+            # Interpolate body template with slots if provided (safe recursive formatting)
             {% if node.body %}
             body_template = {{ node.body | jsonify }}
-            body = json.loads(json.dumps(body_template).format(**flow_state.slots))
+            safe_slots = _SafeSlots(**flow_state.slots)
+            body = _format_nested(body_template, safe_slots)
             {% else %}
             body = None
             {% endif %}

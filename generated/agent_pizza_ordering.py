@@ -1,6 +1,5 @@
 import os
 import logging
-import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
@@ -25,6 +24,26 @@ except Exception:
 from livekit import api
 import aiohttp
 import asyncio
+
+
+# Safe formatting helpers for templated bodies
+class _SafeSlots(dict):
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def _format_nested(value, mapping):
+    if isinstance(value, str):
+        try:
+            return value.format_map(mapping)
+        except Exception:
+            return value
+    if isinstance(value, dict):
+        return {k: _format_nested(v, mapping) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_format_nested(v, mapping) for v in value]
+    return value
+
 
 # Load environment and configure logger
 # Load .env then .env.local (allow .env.local to override)
@@ -833,13 +852,14 @@ class SendSmsConfirmationAgent(BaseFlowAgent):
             method = "POST"
             headers = {"Content-Type": "application/json"}
 
-            # Interpolate body template with slots if provided
+            # Interpolate body template with slots if provided (safe recursive formatting)
 
             body_template = {
                 "to": "{phone}",
                 "message": "Your pizza order has been confirmed! Order details: {size} {kind} pizza with {toppings}. Delivery to: {street}, {city} {zip}. Thank you!",
             }
-            body = json.loads(json.dumps(body_template).format(**flow_state.slots))
+            safe_slots = _SafeSlots(**flow_state.slots)
+            body = _format_nested(body_template, safe_slots)
 
             # Execute HTTP request with retries
             max_attempts = 2 + 1
