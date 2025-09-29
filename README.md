@@ -408,8 +408,16 @@ Generates a single agent file from a JSON input.
 
 ```bash
 python -m factory.cli generate \
-  --input examples/flows/pizza.json \
+  --input flows/pizza_flow.json \
   --output generated/agent_pizza.py
+
+# Additional options:
+# --output-dir, -d       Output directory (default: generated)
+# --template-dir, -t     Custom template directory
+# --validate/--no-validate   Validate before generation (default: true)
+# --strict/--no-strict   Strict validation (default: true)
+# --stdout               Print to stdout instead of file
+# --format text|json     Output format for stdout (default: text)
 ```
 
 ### `batch`
@@ -417,15 +425,25 @@ Generates multiple agents from a directory of JSON files.
 
 ```bash
 python -m factory.cli batch \
-  --input-dir examples/flows \
+  --input-dir flows \
   --output-dir generated
+
+# Additional options:
+# --pattern, -p          File pattern to match (default: *.json)
+# --validate/--no-validate   Validate before generation (default: true)
+# --strict/--no-strict   Strict validation (default: true)
+# --template-dir, -t     Custom template directory
+# --continue-on-error    Continue if a file fails
 ```
 
 ### `validate`
 Validates a flow definition file without generating code. Validation checks for DAG structure (preventing multi-node cycles) while allowing self-loops on conversation nodes for FAQ patterns.
 
 ```bash
-python -m factory.cli validate --input examples/flows/pizza.json
+python -m factory.cli validate --input flows/pizza_flow.json
+
+# Additional options:
+# --strict/--no-strict   Strict validation (default: true)
 ```
 
 ---

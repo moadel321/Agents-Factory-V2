@@ -135,8 +135,9 @@ def generate(input_file, output_file, output_dir, validate, strict, template_dir
                 for issue in code_issues:
                     logger.warning(f"  - {issue}")
 
-            # Format the generated code
-            run_ruff_formatting(output_file)
+            # Format the generated code if RUFF_FORMAT is enabled
+            if os.getenv('RUFF_FORMAT') == '1':
+                run_ruff_formatting(output_file)
 
             logger.info(f"Successfully generated agent: {output_file}")
             click.echo(f"Generated agent saved to: {output_file}")
@@ -209,8 +210,9 @@ def batch(input_dir, output_dir, pattern, validate, strict, template_dir, contin
                 output_file = os.path.join(output_dir, f"agent_{flow.url_id}.py")
                 generator.generate_agent(flow, output_file, validate=False)
 
-                # Format the generated code
-                run_ruff_formatting(output_file)
+                # Format the generated code if RUFF_FORMAT is enabled
+                if os.getenv('RUFF_FORMAT') == '1':
+                    run_ruff_formatting(output_file)
 
                 success_count += 1
                 logger.info(f"✓ Generated {flow_file.name} -> {output_file}")
