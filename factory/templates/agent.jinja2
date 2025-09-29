@@ -277,158 +277,6 @@ class BaseFlowAgent(Agent):
             logger.error(f"Error deleting room: {e}")
 
 
-# Task implementations
-class SendSMSTask:
-    def __init__(self, chat_ctx):
-        self.chat_ctx = chat_ctx
-    
-    async def run(self, to: str, body: str, timeout_ms: int = 10000, retries: int = 0) -> Dict[str, Any]:
-        """Send SMS via webhook or Twilio"""
-        # Check for test mode first
-        test_mode = os.getenv("FACTORY_TEST_MODE", "false").lower() == "true"
-        if test_mode:
-            logger.info(f"TEST MODE: Mocking SMS send to {to}: {body}")
-            # Simulate realistic delay
-            await asyncio.sleep(0.2)  # 200ms delay
-            import uuid
-            from datetime import datetime
-            return {
-                "sent": True,
-                "to": to,
-                "body": body,
-                "method": "mock",
-                "test_mode": True,
-                "message_id": f"test_msg_{uuid.uuid4().hex[:8]}",
-                "timestamp": datetime.now().isoformat()
-            }
-
-        max_attempts = retries + 1
-
-        for attempt in range(max_attempts):
-            try:
-                # Try webhook first if configured
-                webhook_url = os.getenv("SMS_WEBHOOK_URL")
-                if webhook_url:
-                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout_ms/1000)) as session:
-                        async with session.post(webhook_url, json={"to": to, "body": body}) as response:
-                            if response.status == 200:
-                                return {"sent": True, "to": to, "method": "webhook"}
-
-                # Fallback to Twilio if configured
-                twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
-                twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
-                twilio_from = os.getenv("TWILIO_FROM_NUMBER")
-
-                if twilio_sid and twilio_token and twilio_from:
-                    # Implement Twilio SMS sending
-                    logger.info(f"Would send SMS via Twilio from {twilio_from} to {to}: {body}")
-                    return {"sent": True, "to": to, "method": "twilio"}
-
-                # Mock response if no real provider configured
-                logger.warning("No SMS provider configured, mocking SMS send")
-                return {"sent": True, "to": to, "method": "mock"}
-
-            except Exception as e:
-                logger.error(f"SMS send attempt {attempt + 1} failed: {e}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(1)
-                else:
-                    return {"sent": False, "error": str(e)}
-
-        return {"sent": False, "error": "Max retries exceeded"}
-
-
-class TransferCallTask:
-    def __init__(self, chat_ctx, job_context):
-        self.chat_ctx = chat_ctx
-        self.job_context = job_context
-    
-    async def run(self, phone_number: str, timeout_ms: int = 10000, retries: int = 0) -> Dict[str, Any]:
-        """Transfer call using LiveKit SIP"""
-        # Check for test mode first
-        test_mode = os.getenv("FACTORY_TEST_MODE", "false").lower() == "true"
-        if test_mode:
-            logger.info(f"TEST MODE: Mocking call transfer to {phone_number}")
-            # Simulate realistic SIP setup delay
-            await asyncio.sleep(0.5)  # 500ms delay
-            import uuid
-            from datetime import datetime
-            return {
-                "transferred": True,
-                "to": phone_number,
-                "method": "mock",
-                "test_mode": True,
-                "participant_id": f"test_participant_{uuid.uuid4().hex[:8]}",
-                "sip_trunk_id": "test_trunk",
-                "room_name": self.job_context.room.name,
-                "timestamp": datetime.now().isoformat()
-            }
-
-        try:
-            sip_trunk_id = os.getenv("SIP_TRUNK_ID")
-            if not sip_trunk_id:
-                logger.warning("No SIP trunk configured, mocking transfer")
-                return {"transferred": True, "to": phone_number, "method": "mock"}
-
-            # Create SIP participant for transfer
-            logger.info(f"Transferring call to {phone_number}")
-            participant = await self.job_context.api.sip.create_sip_participant(
-                api.CreateSIPParticipantRequest(
-                    room_name=self.job_context.room.name,
-                    sip_trunk_id=sip_trunk_id,
-                    sip_call_to=phone_number
-                )
-            )
-
-            return {"transferred": True, "to": phone_number, "participant_id": participant.participant.identity}
-
-        except Exception as e:
-            logger.error(f"Transfer failed: {e}")
-            return {"transferred": False, "error": str(e)}
-
-
-class RestWebhookTask:
-    def __init__(self, chat_ctx):
-        self.chat_ctx = chat_ctx
-    
-    async def run(self, method: str, url: str, headers: Optional[Dict[str, str]] = None, 
-                  body: Optional[Dict[str, Any]] = None, timeout_ms: int = 10000, retries: int = 0) -> Dict[str, Any]:
-        """Make HTTP request with retries"""
-        max_attempts = retries + 1
-        headers = headers or {}
-        
-        for attempt in range(max_attempts):
-            try:
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout_ms/1000)) as session:
-                    method_fn = getattr(session, method.lower())
-                    
-                    if body:
-                        headers.setdefault("Content-Type", "application/json")
-                        async with method_fn(url, json=body, headers=headers) as response:
-                            response_data = await response.json()
-                    else:
-                        async with method_fn(url, headers=headers) as response:
-                            response_data = await response.json()
-                    
-                    return {
-                        "ok": response.status < 400,
-                        "status": response.status,
-                        "url": url,
-                        "response": response_data
-                    }
-                    
-            except Exception as e:
-                logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(1)
-                else:
-                    return {"ok": False, "error": str(e)}
-        
-        return {"ok": False, "error": "Max retries exceeded"}
-
-
-
-
 # Declarative FLOW_SPEC (node map)
 FLOW_SPEC: Dict[str, Dict[str, Any]] = {
 {% for node in flow.nodes %}
@@ -502,13 +350,13 @@ class EndAgent(BaseFlowAgent):
 
 class {{ node.class_name }}(BaseFlowAgent):
     """{{ node.type|title }} node: {{ node.id }}"""
-    
+
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="{{ node.instructions | replace('\n', '\\n') | replace('"', '\\"') }}"
+            instructions="{{ flow.instructions | replace('\n', '\\n') | replace('"', '\\"') }}"
         )
-    
+
     async def on_enter(self) -> None:
         """Called when entering this node"""
         flow_state: FlowState = self.session.userdata
@@ -516,6 +364,11 @@ class {{ node.class_name }}(BaseFlowAgent):
         if TEST_MODE:
             prev_node = flow_state.path[-2] if len(flow_state.path) >= 2 else None
             logger.info("[GEN-DEBUG] enter_node node_id=%s node_type=%s from=%r", "{{ node.id }}", "{{ node.type }}", prev_node)
+
+        {# Runtime validation: conversation prompt text must be non-empty when provided #}
+        {% if node.type == "conversation" and node.on_enter_text is not none %}
+        assert {{ 'True' if node.on_enter_text else 'False' }}, "Conversation node {{ node.id }} must define non-empty on_enter_text when using a prompt"
+        {% endif %}
 
         {% if node.type == "conversation" %}
         {% if node.on_enter_text and not node.skip_response %}
@@ -531,66 +384,65 @@ class {{ node.class_name }}(BaseFlowAgent):
             self.session.update_agent(next_agent)
             return None
         {% endif %}
-    
-    {% if node.type == "function" and node.function %}
+
+    {% if node.type == "function" %}
     async def _execute_function_task(self):
-        """Execute the function task for this node"""
+        """Generic HTTP function execution"""
         flow_state: FlowState = self.session.userdata
-        
+
+        # Runtime validation: function node required fields
+        assert "{{ node.url }}" != "", "Function node {{ node.id }} missing required field: url"
+        assert "{{ node.method }}" in ["GET", "POST", "PUT", "DELETE", "PATCH"], "Function node {{ node.id }} has invalid method: {{ node.method }}"
+
         try:
-            {% if node.function.function_type == "sms" %}
-            task = SendSMSTask(self.session)
-            # Extract parameters from function schema or default values
-            to_phone = flow_state.get_slot("phone", "")
-            body = flow_state.get_slot("message", "")
-            if not body:
-                # Generic fallback: summarize collected slots
-                try:
-                    slots_copy = dict(flow_state.slots)
-                    # remove internal flags if present
-                    slots_copy.pop("_preemptive_enabled", None)
-                    body = "Order details: " + json.dumps(slots_copy)
-                except Exception:
-                    body = "Order details unavailable"
-            result = await task.run(
-                to=to_phone,
-                body=body,
-                timeout_ms={{ node.function.timeout_ms or 10000 }},
-                retries={{ node.function.retries or 0 }}
-            )
-            {% elif node.function.function_type == "call_transfer" %}
-            task = TransferCallTask(self.session, self.job_context)
-            result = await task.run(
-                phone_number=flow_state.get_slot("transfer_number", ""),
-                timeout_ms={{ node.function.timeout_ms or 10000 }},
-                retries={{ node.function.retries or 0 }}
-            )
-            {% elif node.function.function_type == "rest_webhook" %}
-            task = RestWebhookTask(self.session)
-            result = await task.run(
-                method=flow_state.get_slot("http_method", "POST"),
-                url=flow_state.get_slot("webhook_url", ""),
-                headers=flow_state.get_slot("headers", {}),
-                body=flow_state.get_slot("request_body", {}),
-                timeout_ms={{ node.function.timeout_ms or 10000 }},
-                retries={{ node.function.retries or 0 }}
-            )
+            url = "{{ node.url }}"
+            method = "{{ node.method }}"
+            headers = {{ node.headers | jsonify }}
+
+            # Interpolate body template with slots if provided
+            {% if node.body %}
+            body_template = {{ node.body | jsonify }}
+            body = json.loads(json.dumps(body_template).format(**flow_state.slots))
+            {% else %}
+            body = None
             {% endif %}
-            
+
+            # Execute HTTP request with retries
+            max_attempts = {{ node.retries }} + 1
+            result = None
+
+            for attempt in range(max_attempts):
+                try:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total={{ node.timeout_ms }}/1000)) as session:
+                        method_fn = getattr(session, method.lower())
+
+                        if body:
+                            headers.setdefault("Content-Type", "application/json")
+                            async with method_fn(url, json=body, headers=headers) as response:
+                                response_data = await response.json() if response.content_type == 'application/json' else await response.text()
+                        else:
+                            async with method_fn(url, headers=headers) as response:
+                                response_data = await response.json() if response.content_type == 'application/json' else await response.text()
+
+                        result = {
+                            "ok": response.status < 400,
+                            "status": response.status,
+                            "url": url,
+                            "response": response_data
+                        }
+                        break
+
+                except Exception as e:
+                    logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(1)
+                    else:
+                        result = {"ok": False, "error": str(e)}
+
             # Store result
             flow_state.task_results["{{ node.id }}"] = result
-            logger.info(f"Task {{ node.function.function_type }} completed: {result}")
-            
-            # Brief acknowledgment if successful and no immediate transition
-            # (We avoid double-speak if we will auto-advance below)
-            will_auto_advance = False
-            {% if node.out_edges|length == 1 %}
-            {% set edge = node.out_edges[0] %}
-            will_auto_advance = {{ 'True' if edge.next_class_name else 'False' }}
-            {% endif %}
-            if (result.get("sent") or result.get("transferred") or result.get("ok")) and not will_auto_advance:
-                await self.session.say("All set. One moment while I wrap up.")
-                
+            logger.info(f"Function task completed: {result}")
+
         except Exception as e:
             logger.error(f"Function task failed: {e}")
             flow_state.task_results["{{ node.id }}"] = {"error": str(e)}
@@ -692,69 +544,7 @@ class {{ node.class_name }}(BaseFlowAgent):
     {% endif %}
 
     {% if node.type == "conversation" %}
-    {% if node.capture and node.capture|length > 0 %}
-    {# Nodes with capture: ONE tool that handles data collection AND transition #}
-    @function_tool
-    async def collect(
-        self{% for cap in node.capture %}{% set py_type = 'str' %}{% if cap.type == 'number' %}{% set py_type = 'float' %}{% elif cap.type == 'boolean' %}{% set py_type = 'bool' %}{% else %}{% set py_type = 'str' %}{% endif %},
-        {% if cap.multi %}{{ cap.name | replace(' ', '_') | replace('-', '_') | replace('.', '_') }}: Optional[List[str]] = None{% else %}{% if cap.required %}{{ cap.name | replace(' ', '_') | replace('-', '_') | replace('.', '_') }}: {{ py_type }}{% else %}{{ cap.name | replace(' ', '_') | replace('-', '_') | replace('.', '_') }}: Optional[{{ py_type }}] = None{% endif %}{% endif %}{% endfor %}
-    ) -> Optional[Agent]:
-        """Collect and record information for {{ node.id }}.
-        {% for cap in node.capture %}- {{ cap.name }}{% if cap.enum %} ({{ cap.enum|join(', ') }}){% endif %}{% if cap.description %}: {{ cap.description }}{% endif %}
-        {% endfor %}"""
-        flow_state: FlowState = self.session.userdata
-        self._enable_preemptive_generation()
-
-        # Save captured values
-        {% for cap in node.capture %}
-        {% set pname = cap.name | replace(' ', '_') | replace('-', '_') | replace('.', '_') %}
-        {% if cap.multi %}
-        if {{ pname }} is not None:
-            flow_state.set_slot("{{ cap.name }}", list({{ pname }}))
-            if TEST_MODE:
-                logger.info("[GEN-DEBUG] slot_set node=%s name=%s value=%r", "{{ node.id }}", "{{ cap.name }}", {{ pname }})
-        {% else %}
-        if {{ pname }} is not None:
-            flow_state.set_slot("{{ cap.name }}", {{ pname }})
-            if TEST_MODE:
-                logger.info("[GEN-DEBUG] slot_set node=%s name=%s value=%r", "{{ node.id }}", "{{ cap.name }}", {{ pname }})
-        {% endif %}
-        {% endfor %}
-
-        # Transition to next agent
-        if FLOW_GENERATION_MODE == "declarative":
-            next_agent = self._route_to("{{ node.id }}")
-            if next_agent:
-                return next_agent
-
-        {% if node.out_edges|length == 1 %}
-        {% set edge = node.out_edges[0] %}
-        {% if edge.next_class_name %}
-        if TEST_MODE:
-            logger.info(
-                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
-                "{{ node.id }}",
-                "{{ node.type }}",
-                "{{ edge.from_node_id }}",
-                "{{ edge.to_node_id }}",
-                "{{ edge.edge_id }}",
-                "{{ edge.edge_type }}",
-            )
-        return {{ edge.next_class_name }}(job_context=self.job_context)
-        {% else %}
-        if TEST_MODE:
-            logger.info("[GEN-DEBUG] terminal node_id=%s node_type=%s", "{{ node.id }}", "{{ node.type }}")
-        await self._handle_terminal()
-        return None
-        {% endif %}
-        {% else %}
-        if TEST_MODE:
-            logger.info("[GEN-DEBUG] multi-edge node=%s; routing needed", "{{ node.id }}")
-        return None
-        {% endif %}
-
-    {% else %}
-    {# Nodes without capture: edge tools for navigation #}
+    {# All conversation nodes: edge tools for navigation (capture field is inert for now) #}
     {% for edge in node.out_edges %}
     @function_tool
     async def {{ edge.tool_name }}(self) -> Optional[Agent]:
@@ -795,51 +585,12 @@ class {{ node.class_name }}(BaseFlowAgent):
         {% endif %}
     {% endfor %}
     {% endif %}
-    {% endif %}
 
     {% if not node.out_edges or node.out_edges | selectattr('next_class_name', 'none') | list %}
     async def _handle_terminal(self):
-        """Handle terminal node - run post-call analysis and end call"""
-        await self._run_post_call_analysis()
+        """Handle terminal node - end call"""
         await self.end_call_if_needed()
     {% endif %}
-    
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-        {% if flow.post_call_analysis %}
-        try:
-            flow_state: FlowState = self.session.userdata
-            
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {' -> '.join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-{% for item in flow.post_call_analysis.analysis_items %}
-            - {{ item.name }} ({{ item.type }}): {{ item.description }}
-{% endfor %}
-            """
-            
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="{{ flow.post_call_analysis.model }}")
-            response = await analysis_llm.agenerate(analysis_prompt)
-            
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-                
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-        {% else %}
-        logger.info("No post-call analysis configured")
-        {% endif %}
 
 {% endfor %}
 

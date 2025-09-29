@@ -32,33 +32,6 @@
     "end_call_on_silence_ms": 30000,
     "max_call_duration_ms": 600000
   },
-  "post_call_analysis": {
-    "model": "gpt-4o-mini",
-    "analysis_items": [
-      {
-        "name": "order_completed",
-        "description": "Whether the customer successfully completed their order",
-        "type": "boolean",
-        "selector_options": null
-      },
-      {
-        "name": "customer_satisfaction",
-        "description": "Estimated customer satisfaction level",
-        "type": "selector",
-        "selector_options": [
-          "high",
-          "medium",
-          "low"
-        ]
-      },
-      {
-        "name": "total_items",
-        "description": "Number of items in the order",
-        "type": "number",
-        "selector_options": null
-      }
-    ]
-  },
   "begin_position": {
     "x": 0,
     "y": 0
@@ -84,8 +57,7 @@
         "skip_response": false,
         "finetune_examples": [],
         "llm_overrides": null
-      },
-      "function": null
+      }
     },
     {
       "id": "collect_pizza_details",
@@ -125,8 +97,7 @@
             "description": "Pizza type or style"
           }
         ]
-      },
-      "function": null
+      }
     },
     {
       "id": "collect_toppings",
@@ -155,8 +126,7 @@
             "description": "Topping item"
           }
         ]
-      },
-      "function": null
+      }
     },
     {
       "id": "ask_order_type",
@@ -177,8 +147,7 @@
         "skip_response": false,
         "finetune_examples": [],
         "llm_overrides": null
-      },
-      "function": null
+      }
     },
     {
       "id": "collect_address",
@@ -216,8 +185,7 @@
             "required": true
           }
         ]
-      },
-      "function": null
+      }
     },
     {
       "id": "collect_name",
@@ -245,8 +213,7 @@
             "required": true
           }
         ]
-      },
-      "function": null
+      }
     },
     {
       "id": "collect_order",
@@ -274,8 +241,7 @@
             "required": true
           }
         ]
-      },
-      "function": null
+      }
     },
     {
       "id": "send_confirmation",
@@ -290,31 +256,14 @@
       },
       "type": "function",
       "settings": {
-        "on_enter_text": "",
-        "on_enter_type": "static",
-        "allow_interruptions": false,
-        "skip_response": true,
-        "finetune_examples": [],
-        "llm_overrides": null
-      },
-      "function": {
-        "function_type": "sms",
-        "parameters_schema": {
-          "type": "object",
-          "properties": {
-            "to": {
-              "type": "string",
-              "description": "Customer phone number"
-            },
-            "body": {
-              "type": "string",
-              "description": "SMS confirmation message"
-            }
-          },
-          "required": [
-            "to",
-            "body"
-          ]
+        "url": "https://api.example.com/sms/send",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "to": "{phone}",
+          "message": "Your pizza order has been confirmed! Order details: {size} {kind} pizza with {toppings}. Delivery to: {street}, {city} {zip}. Thank you!"
         },
         "timeout_ms": 15000,
         "retries": 2
@@ -339,8 +288,7 @@
         "skip_response": false,
         "finetune_examples": [],
         "llm_overrides": null
-      },
-      "function": null
+      }
     }
   ],
   "edges": [
@@ -463,5 +411,3 @@
     }
   ]
 }
-
-

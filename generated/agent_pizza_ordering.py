@@ -216,183 +216,6 @@ class BaseFlowAgent(Agent):
             logger.error(f"Error deleting room: {e}")
 
 
-# Task implementations
-class SendSMSTask:
-    def __init__(self, chat_ctx):
-        self.chat_ctx = chat_ctx
-
-    async def run(
-        self, to: str, body: str, timeout_ms: int = 10000, retries: int = 0
-    ) -> Dict[str, Any]:
-        """Send SMS via webhook or Twilio"""
-        # Check for test mode first
-        test_mode = os.getenv("FACTORY_TEST_MODE", "false").lower() == "true"
-        if test_mode:
-            logger.info(f"TEST MODE: Mocking SMS send to {to}: {body}")
-            # Simulate realistic delay
-            await asyncio.sleep(0.2)  # 200ms delay
-            import uuid
-            from datetime import datetime
-
-            return {
-                "sent": True,
-                "to": to,
-                "body": body,
-                "method": "mock",
-                "test_mode": True,
-                "message_id": f"test_msg_{uuid.uuid4().hex[:8]}",
-                "timestamp": datetime.now().isoformat(),
-            }
-
-        max_attempts = retries + 1
-
-        for attempt in range(max_attempts):
-            try:
-                # Try webhook first if configured
-                webhook_url = os.getenv("SMS_WEBHOOK_URL")
-                if webhook_url:
-                    async with aiohttp.ClientSession(
-                        timeout=aiohttp.ClientTimeout(total=timeout_ms / 1000)
-                    ) as session:
-                        async with session.post(
-                            webhook_url, json={"to": to, "body": body}
-                        ) as response:
-                            if response.status == 200:
-                                return {"sent": True, "to": to, "method": "webhook"}
-
-                # Fallback to Twilio if configured
-                twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
-                twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
-                twilio_from = os.getenv("TWILIO_FROM_NUMBER")
-
-                if twilio_sid and twilio_token and twilio_from:
-                    # Implement Twilio SMS sending
-                    logger.info(
-                        f"Would send SMS via Twilio from {twilio_from} to {to}: {body}"
-                    )
-                    return {"sent": True, "to": to, "method": "twilio"}
-
-                # Mock response if no real provider configured
-                logger.warning("No SMS provider configured, mocking SMS send")
-                return {"sent": True, "to": to, "method": "mock"}
-
-            except Exception as e:
-                logger.error(f"SMS send attempt {attempt + 1} failed: {e}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(1)
-                else:
-                    return {"sent": False, "error": str(e)}
-
-        return {"sent": False, "error": "Max retries exceeded"}
-
-
-class TransferCallTask:
-    def __init__(self, chat_ctx, job_context):
-        self.chat_ctx = chat_ctx
-        self.job_context = job_context
-
-    async def run(
-        self, phone_number: str, timeout_ms: int = 10000, retries: int = 0
-    ) -> Dict[str, Any]:
-        """Transfer call using LiveKit SIP"""
-        # Check for test mode first
-        test_mode = os.getenv("FACTORY_TEST_MODE", "false").lower() == "true"
-        if test_mode:
-            logger.info(f"TEST MODE: Mocking call transfer to {phone_number}")
-            # Simulate realistic SIP setup delay
-            await asyncio.sleep(0.5)  # 500ms delay
-            import uuid
-            from datetime import datetime
-
-            return {
-                "transferred": True,
-                "to": phone_number,
-                "method": "mock",
-                "test_mode": True,
-                "participant_id": f"test_participant_{uuid.uuid4().hex[:8]}",
-                "sip_trunk_id": "test_trunk",
-                "room_name": self.job_context.room.name,
-                "timestamp": datetime.now().isoformat(),
-            }
-
-        try:
-            sip_trunk_id = os.getenv("SIP_TRUNK_ID")
-            if not sip_trunk_id:
-                logger.warning("No SIP trunk configured, mocking transfer")
-                return {"transferred": True, "to": phone_number, "method": "mock"}
-
-            # Create SIP participant for transfer
-            logger.info(f"Transferring call to {phone_number}")
-            participant = await self.job_context.api.sip.create_sip_participant(
-                api.CreateSIPParticipantRequest(
-                    room_name=self.job_context.room.name,
-                    sip_trunk_id=sip_trunk_id,
-                    sip_call_to=phone_number,
-                )
-            )
-
-            return {
-                "transferred": True,
-                "to": phone_number,
-                "participant_id": participant.participant.identity,
-            }
-
-        except Exception as e:
-            logger.error(f"Transfer failed: {e}")
-            return {"transferred": False, "error": str(e)}
-
-
-class RestWebhookTask:
-    def __init__(self, chat_ctx):
-        self.chat_ctx = chat_ctx
-
-    async def run(
-        self,
-        method: str,
-        url: str,
-        headers: Optional[Dict[str, str]] = None,
-        body: Optional[Dict[str, Any]] = None,
-        timeout_ms: int = 10000,
-        retries: int = 0,
-    ) -> Dict[str, Any]:
-        """Make HTTP request with retries"""
-        max_attempts = retries + 1
-        headers = headers or {}
-
-        for attempt in range(max_attempts):
-            try:
-                async with aiohttp.ClientSession(
-                    timeout=aiohttp.ClientTimeout(total=timeout_ms / 1000)
-                ) as session:
-                    method_fn = getattr(session, method.lower())
-
-                    if body:
-                        headers.setdefault("Content-Type", "application/json")
-                        async with method_fn(
-                            url, json=body, headers=headers
-                        ) as response:
-                            response_data = await response.json()
-                    else:
-                        async with method_fn(url, headers=headers) as response:
-                            response_data = await response.json()
-
-                    return {
-                        "ok": response.status < 400,
-                        "status": response.status,
-                        "url": url,
-                        "response": response_data,
-                    }
-
-            except Exception as e:
-                logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(1)
-                else:
-                    return {"ok": False, "error": str(e)}
-
-        return {"ok": False, "error": "Max retries exceeded"}
-
-
 # Declarative FLOW_SPEC (node map)
 FLOW_SPEC: Dict[str, Dict[str, Any]] = {
     "greeting": {
@@ -581,7 +404,7 @@ class GreetingAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.\n\n",
+            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
         )
 
     async def on_enter(self) -> None:
@@ -596,6 +419,8 @@ class GreetingAgent(BaseFlowAgent):
                 "conversation",
                 prev_node,
             )
+
+        assert True, "Conversation node greeting must define non-empty on_enter_text when using a prompt"
 
         await self.say_or_skip(
             "Hi! Welcome to Pizza Palace. What would you like to order today?", False
@@ -624,44 +449,6 @@ class GreetingAgent(BaseFlowAgent):
             )
         return CollectPizzaDetailsAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - order_completed (boolean): Whether the customer successfully completed their order
-
-            - customer_satisfaction (selector): Estimated customer satisfaction level
-
-            - total_items (number): Number of items in the order
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class CollectPizzaDetailsAgent(BaseFlowAgent):
     """Conversation node: collect_pizza_details"""
@@ -669,7 +456,7 @@ class CollectPizzaDetailsAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.\n\n",
+            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
         )
 
     async def on_enter(self) -> None:
@@ -685,43 +472,19 @@ class CollectPizzaDetailsAgent(BaseFlowAgent):
                 prev_node,
             )
 
+        assert True, "Conversation node collect_pizza_details must define non-empty on_enter_text when using a prompt"
+
         await self.say_or_skip(
             "Great! What size would you like (small, medium, large), and what kind of pizza?",
             False,
         )
 
     @function_tool
-    async def collect(self, size: str, kind: str) -> Optional[Agent]:
-        """Collect and record information for collect_pizza_details.
-        - size (small, medium, large): Pizza size
-        - kind: Pizza type or style
-        """
+    async def go_proceed_to_toppings(self) -> Optional[Agent]:
+        """Customer provided size/type or asked for toppings"""
         flow_state: FlowState = self.session.userdata
         self._enable_preemptive_generation()
 
-        # Save captured values
-
-        if size is not None:
-            flow_state.set_slot("size", size)
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] slot_set node=%s name=%s value=%r",
-                    "collect_pizza_details",
-                    "size",
-                    size,
-                )
-
-        if kind is not None:
-            flow_state.set_slot("kind", kind)
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] slot_set node=%s name=%s value=%r",
-                    "collect_pizza_details",
-                    "kind",
-                    kind,
-                )
-
-        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_pizza_details")
             if next_agent:
@@ -739,44 +502,6 @@ class CollectPizzaDetailsAgent(BaseFlowAgent):
             )
         return CollectToppingsAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - order_completed (boolean): Whether the customer successfully completed their order
-
-            - customer_satisfaction (selector): Estimated customer satisfaction level
-
-            - total_items (number): Number of items in the order
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class CollectToppingsAgent(BaseFlowAgent):
     """Conversation node: collect_toppings"""
@@ -784,7 +509,7 @@ class CollectToppingsAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.\n\n",
+            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
         )
 
     async def on_enter(self) -> None:
@@ -800,32 +525,19 @@ class CollectToppingsAgent(BaseFlowAgent):
                 prev_node,
             )
 
+        assert True, "Conversation node collect_toppings must define non-empty on_enter_text when using a prompt"
+
         await self.say_or_skip(
             "Any toppings or extras you'd like? You can list multiple, or say 'no'.",
             False,
         )
 
     @function_tool
-    async def collect(self, toppings: Optional[List[str]] = None) -> Optional[Agent]:
-        """Collect and record information for collect_toppings.
-        - toppings: Topping item
-        """
+    async def go_proceed_to_order_type(self) -> Optional[Agent]:
+        """Customer finished selecting toppings/extras"""
         flow_state: FlowState = self.session.userdata
         self._enable_preemptive_generation()
 
-        # Save captured values
-
-        if toppings is not None:
-            flow_state.set_slot("toppings", list(toppings))
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] slot_set node=%s name=%s value=%r",
-                    "collect_toppings",
-                    "toppings",
-                    toppings,
-                )
-
-        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_toppings")
             if next_agent:
@@ -843,44 +555,6 @@ class CollectToppingsAgent(BaseFlowAgent):
             )
         return AskPickupOrDeliveryAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - order_completed (boolean): Whether the customer successfully completed their order
-
-            - customer_satisfaction (selector): Estimated customer satisfaction level
-
-            - total_items (number): Number of items in the order
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class AskPickupOrDeliveryAgent(BaseFlowAgent):
     """Conversation node: ask_order_type"""
@@ -888,7 +562,7 @@ class AskPickupOrDeliveryAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.\n\n",
+            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
         )
 
     async def on_enter(self) -> None:
@@ -903,6 +577,8 @@ class AskPickupOrDeliveryAgent(BaseFlowAgent):
                 "conversation",
                 prev_node,
             )
+
+        assert True, "Conversation node ask_order_type must define non-empty on_enter_text when using a prompt"
 
         await self.say_or_skip("Will this be pickup or delivery?", False)
 
@@ -952,44 +628,6 @@ class AskPickupOrDeliveryAgent(BaseFlowAgent):
             )
         return CollectNameAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - order_completed (boolean): Whether the customer successfully completed their order
-
-            - customer_satisfaction (selector): Estimated customer satisfaction level
-
-            - total_items (number): Number of items in the order
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class CollectAddressAgent(BaseFlowAgent):
     """Conversation node: collect_address"""
@@ -997,7 +635,7 @@ class CollectAddressAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.\n\n",
+            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
         )
 
     async def on_enter(self) -> None:
@@ -1013,53 +651,18 @@ class CollectAddressAgent(BaseFlowAgent):
                 prev_node,
             )
 
+        assert True, "Conversation node collect_address must define non-empty on_enter_text when using a prompt"
+
         await self.say_or_skip(
             "Please provide the delivery address (street, city, zip).", False
         )
 
     @function_tool
-    async def collect(self, street: str, city: str, zip: str) -> Optional[Agent]:
-        """Collect and record information for collect_address.
-        - street
-        - city
-        - zip
-        """
+    async def go_proceed_to_name(self) -> Optional[Agent]:
+        """Address provided (or pickup chosen)"""
         flow_state: FlowState = self.session.userdata
         self._enable_preemptive_generation()
 
-        # Save captured values
-
-        if street is not None:
-            flow_state.set_slot("street", street)
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] slot_set node=%s name=%s value=%r",
-                    "collect_address",
-                    "street",
-                    street,
-                )
-
-        if city is not None:
-            flow_state.set_slot("city", city)
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] slot_set node=%s name=%s value=%r",
-                    "collect_address",
-                    "city",
-                    city,
-                )
-
-        if zip is not None:
-            flow_state.set_slot("zip", zip)
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] slot_set node=%s name=%s value=%r",
-                    "collect_address",
-                    "zip",
-                    zip,
-                )
-
-        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_address")
             if next_agent:
@@ -1077,44 +680,6 @@ class CollectAddressAgent(BaseFlowAgent):
             )
         return CollectNameAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - order_completed (boolean): Whether the customer successfully completed their order
-
-            - customer_satisfaction (selector): Estimated customer satisfaction level
-
-            - total_items (number): Number of items in the order
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class CollectNameAgent(BaseFlowAgent):
     """Conversation node: collect_name"""
@@ -1122,7 +687,7 @@ class CollectNameAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.\n\n",
+            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
         )
 
     async def on_enter(self) -> None:
@@ -1138,29 +703,16 @@ class CollectNameAgent(BaseFlowAgent):
                 prev_node,
             )
 
+        assert True, "Conversation node collect_name must define non-empty on_enter_text when using a prompt"
+
         await self.say_or_skip("What name should we put on your order?", False)
 
     @function_tool
-    async def collect(self, name: str) -> Optional[Agent]:
-        """Collect and record information for collect_name.
-        - name
-        """
+    async def go_proceed_to_phone(self) -> Optional[Agent]:
+        """Name provided"""
         flow_state: FlowState = self.session.userdata
         self._enable_preemptive_generation()
 
-        # Save captured values
-
-        if name is not None:
-            flow_state.set_slot("name", name)
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] slot_set node=%s name=%s value=%r",
-                    "collect_name",
-                    "name",
-                    name,
-                )
-
-        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_name")
             if next_agent:
@@ -1178,44 +730,6 @@ class CollectNameAgent(BaseFlowAgent):
             )
         return CollectPhoneNumberAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - order_completed (boolean): Whether the customer successfully completed their order
-
-            - customer_satisfaction (selector): Estimated customer satisfaction level
-
-            - total_items (number): Number of items in the order
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class CollectPhoneNumberAgent(BaseFlowAgent):
     """Conversation node: collect_order"""
@@ -1223,7 +737,7 @@ class CollectPhoneNumberAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.\n\n",
+            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
         )
 
     async def on_enter(self) -> None:
@@ -1239,32 +753,19 @@ class CollectPhoneNumberAgent(BaseFlowAgent):
                 prev_node,
             )
 
+        assert True, "Conversation node collect_order must define non-empty on_enter_text when using a prompt"
+
         await self.say_or_skip(
             "Great, lastly, what is the best phone number for your order confirmation?",
             False,
         )
 
     @function_tool
-    async def collect(self, phone: str) -> Optional[Agent]:
-        """Collect and record information for collect_order.
-        - phone
-        """
+    async def go_send_sms_confirmation(self) -> Optional[Agent]:
+        """Customer has provided their phone number"""
         flow_state: FlowState = self.session.userdata
         self._enable_preemptive_generation()
 
-        # Save captured values
-
-        if phone is not None:
-            flow_state.set_slot("phone", phone)
-            if TEST_MODE:
-                logger.info(
-                    "[GEN-DEBUG] slot_set node=%s name=%s value=%r",
-                    "collect_order",
-                    "phone",
-                    phone,
-                )
-
-        # Transition to next agent
         if FLOW_GENERATION_MODE == "declarative":
             next_agent = self._route_to("collect_order")
             if next_agent:
@@ -1282,44 +783,6 @@ class CollectPhoneNumberAgent(BaseFlowAgent):
             )
         return SendSmsConfirmationAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - order_completed (boolean): Whether the customer successfully completed their order
-
-            - customer_satisfaction (selector): Estimated customer satisfaction level
-
-            - total_items (number): Number of items in the order
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class SendSmsConfirmationAgent(BaseFlowAgent):
     """Function node: send_confirmation"""
@@ -1327,7 +790,7 @@ class SendSmsConfirmationAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.\n\n",
+            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
         )
 
     async def on_enter(self) -> None:
@@ -1350,39 +813,81 @@ class SendSmsConfirmationAgent(BaseFlowAgent):
             return None
 
     async def _execute_function_task(self):
-        """Execute the function task for this node"""
+        """Generic HTTP function execution"""
         flow_state: FlowState = self.session.userdata
 
+        # Runtime validation: function node required fields
+        assert (
+            "https://api.example.com/sms/send" != ""
+        ), "Function node send_confirmation missing required field: url"
+        assert "POST" in [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH",
+        ], "Function node send_confirmation has invalid method: POST"
+
         try:
-            task = SendSMSTask(self.session)
-            # Extract parameters from function schema or default values
-            to_phone = flow_state.get_slot("phone", "")
-            body = flow_state.get_slot("message", "")
-            if not body:
-                # Generic fallback: summarize collected slots
+            url = "https://api.example.com/sms/send"
+            method = "POST"
+            headers = {"Content-Type": "application/json"}
+
+            # Interpolate body template with slots if provided
+
+            body_template = {
+                "to": "{phone}",
+                "message": "Your pizza order has been confirmed! Order details: {size} {kind} pizza with {toppings}. Delivery to: {street}, {city} {zip}. Thank you!",
+            }
+            body = json.loads(json.dumps(body_template).format(**flow_state.slots))
+
+            # Execute HTTP request with retries
+            max_attempts = 2 + 1
+            result = None
+
+            for attempt in range(max_attempts):
                 try:
-                    slots_copy = dict(flow_state.slots)
-                    # remove internal flags if present
-                    slots_copy.pop("_preemptive_enabled", None)
-                    body = "Order details: " + json.dumps(slots_copy)
-                except Exception:
-                    body = "Order details unavailable"
-            result = await task.run(to=to_phone, body=body, timeout_ms=15000, retries=2)
+                    async with aiohttp.ClientSession(
+                        timeout=aiohttp.ClientTimeout(total=15000 / 1000)
+                    ) as session:
+                        method_fn = getattr(session, method.lower())
+
+                        if body:
+                            headers.setdefault("Content-Type", "application/json")
+                            async with method_fn(
+                                url, json=body, headers=headers
+                            ) as response:
+                                response_data = (
+                                    await response.json()
+                                    if response.content_type == "application/json"
+                                    else await response.text()
+                                )
+                        else:
+                            async with method_fn(url, headers=headers) as response:
+                                response_data = (
+                                    await response.json()
+                                    if response.content_type == "application/json"
+                                    else await response.text()
+                                )
+
+                        result = {
+                            "ok": response.status < 400,
+                            "status": response.status,
+                            "url": url,
+                            "response": response_data,
+                        }
+                        break
+
+                except Exception as e:
+                    logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(1)
+                    else:
+                        result = {"ok": False, "error": str(e)}
 
             # Store result
             flow_state.task_results["send_confirmation"] = result
-            logger.info(f"Task sms completed: {result}")
-
-            # Brief acknowledgment if successful and no immediate transition
-            # (We avoid double-speak if we will auto-advance below)
-            will_auto_advance = False
-
-            will_auto_advance = True
-
-            if (
-                result.get("sent") or result.get("transferred") or result.get("ok")
-            ) and not will_auto_advance:
-                await self.session.say("All set. One moment while I wrap up.")
+            logger.info(f"Function task completed: {result}")
 
         except Exception as e:
             logger.error(f"Function task failed: {e}")
@@ -1424,44 +929,6 @@ class SendSmsConfirmationAgent(BaseFlowAgent):
             )
         return OrderCompleteAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - order_completed (boolean): Whether the customer successfully completed their order
-
-            - customer_satisfaction (selector): Estimated customer satisfaction level
-
-            - total_items (number): Number of items in the order
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class OrderCompleteAgent(BaseFlowAgent):
     """Conversation node: order_complete"""
@@ -1469,7 +936,7 @@ class OrderCompleteAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.\n\n",
+            instructions="You are a helpful pizza ordering assistant. Be friendly, efficient, and make sure to collect all necessary information for the order.",
         )
 
     async def on_enter(self) -> None:
@@ -1484,6 +951,8 @@ class OrderCompleteAgent(BaseFlowAgent):
                 "conversation",
                 prev_node,
             )
+
+        assert True, "Conversation node order_complete must define non-empty on_enter_text when using a prompt"
 
         await self.say_or_skip(
             "Perfect! Your pizza order has been placed and you should receive a confirmation SMS shortly. Your pizza will be ready in about 20 minutes. Thank you for choosing Pizza Palace!",
@@ -1515,47 +984,8 @@ class OrderCompleteAgent(BaseFlowAgent):
         return None
 
     async def _handle_terminal(self):
-        """Handle terminal node - run post-call analysis and end call"""
-        await self._run_post_call_analysis()
+        """Handle terminal node - end call"""
         await self.end_call_if_needed()
-
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - order_completed (boolean): Whether the customer successfully completed their order
-
-            - customer_satisfaction (selector): Estimated customer satisfaction level
-
-            - total_items (number): Number of items in the order
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
 
 
 def prewarm(proc):

@@ -60,10 +60,6 @@ def build_mermaid(flow: ConversationFlowOut, direction: str = "TB") -> str:
         legend.append(
             f"Call: who={flow.call_settings.who_speaks_first}, silence={flow.call_settings.end_call_on_silence_ms}ms, max={flow.call_settings.max_call_duration_ms}ms"
         )
-    if flow.post_call_analysis:
-        legend.append(
-            f"Post-call analysis: {flow.post_call_analysis.model} ({len(flow.post_call_analysis.analysis_items)} items)"
-        )
     lines.append("  subgraph Legend")
     joined_legend = "\n".join(legend)
     lines.append(f"    legend[\"{_mescape(joined_legend)}\"]")

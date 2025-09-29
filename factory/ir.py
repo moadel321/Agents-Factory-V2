@@ -12,7 +12,6 @@ class IRFlow:
     stt_provider: str
     llm: Any
     tts: Any
-    post_call_analysis: Any
     call_settings: Any
     nodes: List[Any]
     start_class_name: str
@@ -44,30 +43,35 @@ def build_ir(flow: ConversationFlowOut) -> IRFlow:
             "id": n.id,
             "class_name": class_name,
             "type": n.type,
-            "instructions": (flow.instructions or "") + "\n\n" + (n.global_settings.prompt if n.global_settings else ""),
-            "on_enter_text": n.settings.on_enter_text if n.settings.on_enter_type == "prompt" else None,
-            "skip_response": n.settings.skip_response,
             "out_edges": [],
-            # Node-level capture fields (optional)
-            "capture": [
-                {
-                    "name": f.name,
-                    "type": getattr(f, "type", "string"),
-                    "enum": getattr(f, "enum", None),
-                    "multi": getattr(f, "multi", False),
-                    "required": getattr(f, "required", False),
-                    "description": getattr(f, "description", None),
-                }
-                for f in (n.settings.capture or [])
-            ],
         }
-        if n.type == "function" and n.function is not None:
-            node_ir["function"] = {
-                "function_type": n.function.function_type,
-                "timeout_ms": getattr(n.function, "timeout_ms", 10000),
-                "retries": getattr(n.function, "retries", 0),
-                "call_kwargs": {},
-            }
+
+        # Handle type-specific settings
+        if n.type == "conversation":
+            node_ir.update({
+                "on_enter_text": n.settings.on_enter_text if n.settings.on_enter_type == "prompt" else None,
+                "skip_response": n.settings.skip_response,
+                "capture": [
+                    {
+                        "name": f.name,
+                        "type": getattr(f, "type", "string"),
+                        "enum": getattr(f, "enum", None),
+                        "multi": getattr(f, "multi", False),
+                        "required": getattr(f, "required", False),
+                        "description": getattr(f, "description", None),
+                    }
+                    for f in (n.settings.capture or [])
+                ],
+            })
+        elif n.type == "function":
+            node_ir.update({
+                "url": n.settings.url,
+                "method": n.settings.method,
+                "headers": n.settings.headers or {},
+                "body": n.settings.body,
+                "timeout_ms": n.settings.timeout_ms,
+                "retries": n.settings.retries,
+            })
         for e in out_edges.get(n.id, []):
             if e.to_node_id is not None:
                 # Regular edge to another node
@@ -112,7 +116,6 @@ def build_ir(flow: ConversationFlowOut) -> IRFlow:
             "voice_id": getattr(flow.tts_settings, "voice_id", None),
             "provider": getattr(flow.tts_settings, "tts_provider", None),
         },
-        post_call_analysis=getattr(flow, "post_call_analysis", None),
         call_settings=getattr(flow, "call_settings", None),
         nodes=nodes_ir,
         start_class_name=start_class_name,

@@ -113,8 +113,8 @@ This approach combines the declarative ease of a visual flow builder with the pe
 
 ## Terminal behavior and optional follow‑ups
 
-- Terminal transitions (`to_node_id: null`) are handled by `_handle_terminal()`, which runs post‑call analysis (if configured) and ends the room.
-- You may add an optional “post‑completion prompt” node (e.g., ask “Anything else I can help with?”) with two edges: one to FAQ/help and one terminal edge.
+- Terminal transitions (`to_node_id: null`) are handled by `_handle_terminal()`, which ends the room.
+- You may add an optional "post‑completion prompt" node (e.g., ask "Anything else I can help with?") with two edges: one to FAQ/help and one terminal edge.
 
 ---
 
@@ -284,7 +284,6 @@ This section details the structure of the input JSON file.
 | `tts_settings` | object | Configuration for Text-to-Speech. See below. |
 | `llm_settings` | object | Configuration for the Language Model. See below. |
 | `call_settings` | object | Configuration for call behavior. See below. |
-| `post_call_analysis`| object | (Optional) Configuration for post-call analysis. See below. |
 | `start_node_id` | string | The `id` of the first node to execute when the call begins. |
 | `nodes` | array | An array of Node objects. |
 | `edges` | array | An array of Edge objects. |
@@ -494,7 +493,6 @@ The `build_ir` function (`factory/ir.py`) transforms your JSON flow into a `flow
         -   `edge.tool_name`: Becomes the name of the `@function_tool` (e.g., `go_proceed_to_collect_info`).
         -   `edge.description`: Used as the docstring for the tool, which is critical for the LLM to understand its purpose.
         -   `edge.next_class_name`: Determines the return value of the tool, enabling the handoff to the next agent (e.g., `return CollectOrderDetailsAgent(...)`). If `null`, it is treated as a terminal edge; in declarative mode, the router falls back to `EndAgent`.
--   **`flow.post_call_analysis`**: If present, this object is used to generate the `_run_post_call_analysis` method, dynamically creating the prompt from the `analysis_items`.
 
 The mapping is direct and predictable. The structure of your JSON `nodes` and `edges` arrays directly corresponds to the generated Python classes and the `@function_tool` methods that connect them.
 
@@ -536,13 +534,9 @@ This directory contains the core logic for parsing, validating, and transforming
   original: ElevenLabs `model: str` (free-form); AWS Polly supported.  
   current: ElevenLabs `model` is a strict Literal set (`eleven_multilingual_v2`, `eleven_flash_v2_5`, etc.); AWS Polly still supported. `voice_settings` fields are optional (`style`/`speed`/`use_speaker_boost`) instead of `Union[..., None]`.
 
-- **LLM settings**  
-  original: `model` Literal constrained to `['gpt-4.1','azure-gpt-4.1']`.  
+- **LLM settings**
+  original: `model` Literal constrained to `['gpt-4.1','azure-gpt-4.1']`.
   current: `model: str` (unconstrained to support OpenAI, Azure OpenAI, Gemini, etc.); `provider` unchanged (`openai|azure|google`).
-
-- **Post‑call analysis**  
-  original: `model` limited to `gpt-4.1`, `gpt-4.1-mini`.  
-  current: expanded to `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o`, `gpt-4o-mini`; `analysis_items` unchanged semantically.
 
 - **Conversation settings**  
   original: no `llm_overrides`, no structured captures.  

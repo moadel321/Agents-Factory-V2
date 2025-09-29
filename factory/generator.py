@@ -188,11 +188,10 @@ class CodeGenerator:
                     "speech_engine": getattr(ts, "speech_engine", None),
                 })(flow.tts_settings),
                 "nodes": ir.nodes,
-                "start_class_name": ir.start_class_name,
-                "post_call_analysis": self._build_post_call_analysis_context(flow)
+                "start_class_name": ir.start_class_name
             }
         }
-        
+
         # Add call settings if available
         if flow.call_settings:
             context["flow"]["call_settings"] = {
@@ -200,34 +199,8 @@ class CodeGenerator:
                 "end_call_on_silence_ms": flow.call_settings.end_call_on_silence_ms,
                 "max_call_duration_ms": flow.call_settings.max_call_duration_ms
             }
-        
+
         return context
-    
-    def _build_post_call_analysis_context(self, flow: ConversationFlowOut) -> Optional[Dict[str, Any]]:
-        """
-        Build post-call analysis context for template.
-        
-        Args:
-            flow: Flow definition
-            
-        Returns:
-            Post-call analysis context or None if not configured
-        """
-        if not flow.post_call_analysis:
-            return None
-        
-        return {
-            "model": flow.post_call_analysis.model,
-            "analysis_items": [
-                {
-                    "name": item.name,
-                    "description": item.description,
-                    "type": item.type,
-                    "selector_options": item.selector_options
-                }
-                for item in flow.post_call_analysis.analysis_items
-            ]
-        }
     
     def generate_multiple_agents(
         self, 

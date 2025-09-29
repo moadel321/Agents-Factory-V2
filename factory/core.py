@@ -142,7 +142,7 @@ class BaseFlowAgent(Agent):
             await self.session.aclose()
             
             # Delete room if requested
-            if os.getenv("DELETE_ROOM_ON_END", "true").lower() == "true":
+            if os.getenv("DELETE_ROOM_ON_END", "false").lower() == "true":
                 request = api.DeleteRoomRequest(room=self.job_context.room.name)
                 await self.job_context.api.room.delete_room(request)
                 logger.info("Room deleted successfully")
