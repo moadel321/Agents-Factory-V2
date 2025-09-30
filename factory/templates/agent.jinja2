@@ -687,9 +687,13 @@ async def entrypoint(ctx: JobContext) -> None:
         llm=_llm,
         stt=_stt,
         tts=_tts,
-        vad=ctx.proc.userdata["vad"],
-        preemptive_generation=(os.getenv("PREEMPTIVE_FIRST_TURN", "false").lower() == "true")
+        vad=ctx.proc.userdata["vad"]
     )
+
+    if hasattr(session, "preemptive_generation"):
+        session.preemptive_generation = (
+            os.getenv("PREEMPTIVE_FIRST_TURN", "false").lower() == "true"
+        )
     
     # Initialize FlowState
     session.userdata = FlowState()
