@@ -245,7 +245,7 @@ FLOW_SPEC: Dict[str, Dict[str, Any]] = {
                 "edge_id": "edge_1",
                 "edge_type": "prompt",
                 "to_node_id": "ask_patient_type",
-                "name": "go_Ask_Patient_Type",
+                "name": "go_edge_1_ask_patient_type",
                 "description": "User wants to book a new appointment or reschedule.",
             },
             {
@@ -265,7 +265,7 @@ FLOW_SPEC: Dict[str, Dict[str, Any]] = {
         ],
     },
     "ask_patient_type": {
-        "agent_class": "AskPatientTypeAgent",
+        "agent_class": "اسألنوعالمريضAgent",
         "type": "conversation",
         "edges": [
             {
@@ -507,16 +507,15 @@ class GreetingTriageAgent(BaseFlowAgent):
             )
 
         assert True, (
-            "Conversation node greeting_triage must define non-empty on_enter_text when using a prompt"
+            "Conversation node greeting_triage (prompt) must define non-empty on_enter_text"
         )
 
-        await self.say_or_skip(
-            "Thank you for calling Downtown Dental. This is the automated assistant. How can I help you today? You can say things like 'I'd like to book an appointment' or 'what are your office hours?'",
-            False,
+        await self.session.generate_reply(
+            instructions="Welcome the user and say hello in a different language, be creative"
         )
 
     @function_tool
-    async def go_Ask_Patient_Type(self) -> Optional[Agent]:
+    async def go_edge_1_ask_patient_type(self) -> Optional[Agent]:
         """User wants to book a new appointment or reschedule."""
         flow_state: FlowState = self.session.userdata
         self._enable_preemptive_generation()
@@ -536,7 +535,7 @@ class GreetingTriageAgent(BaseFlowAgent):
                 "edge_1",
                 "prompt",
             )
-        return AskPatientTypeAgent(job_context=self.job_context)
+        return اسألنوعالمريضAgent(job_context=self.job_context)
 
     @function_tool
     async def go_Verify_Patient_Manage(self) -> Optional[Agent]:
@@ -585,7 +584,7 @@ class GreetingTriageAgent(BaseFlowAgent):
         return AnswerFaqAgent(job_context=self.job_context)
 
 
-class AskPatientTypeAgent(BaseFlowAgent):
+class اسألنوعالمريضAgent(BaseFlowAgent):
     """Conversation node: ask_patient_type"""
 
     def __init__(self, job_context: JobContext) -> None:
@@ -606,10 +605,6 @@ class AskPatientTypeAgent(BaseFlowAgent):
                 "conversation",
                 prev_node,
             )
-
-        assert True, (
-            "Conversation node ask_patient_type must define non-empty on_enter_text when using a prompt"
-        )
 
         await self.say_or_skip(
             "I can help with that. Are you a new or an existing patient?", False
@@ -685,12 +680,11 @@ class VerifyExistingPatientBookAgent(BaseFlowAgent):
             )
 
         assert True, (
-            "Conversation node verify_existing_patient_book must define non-empty on_enter_text when using a prompt"
+            "Conversation node verify_existing_patient_book (prompt) must define non-empty on_enter_text"
         )
 
-        await self.say_or_skip(
-            "Welcome back! To pull up your file, could you please tell me your full name and date of birth?",
-            False,
+        await self.session.generate_reply(
+            instructions="Welcome back! To pull up your file, could you please tell me your full name and date of birth?"
         )
 
     @function_tool
@@ -740,12 +734,11 @@ class CollectNewPatientInfoAgent(BaseFlowAgent):
             )
 
         assert True, (
-            "Conversation node collect_new_patient_info must define non-empty on_enter_text when using a prompt"
+            "Conversation node collect_new_patient_info (prompt) must define non-empty on_enter_text"
         )
 
-        await self.say_or_skip(
-            "Welcome to our practice! To get you started, I'll need your full name and a good phone number to reach you at.",
-            False,
+        await self.session.generate_reply(
+            instructions="Welcome to our practice! To get you started, I'll need your full name and a good phone number to reach you at."
         )
 
     @function_tool
@@ -795,12 +788,11 @@ class OfferConfirmTimeAgent(BaseFlowAgent):
             )
 
         assert True, (
-            "Conversation node offer_and_confirm_time must define non-empty on_enter_text when using a prompt"
+            "Conversation node offer_and_confirm_time (prompt) must define non-empty on_enter_text"
         )
 
-        await self.say_or_skip(
-            "Okay, thank you. What is the reason for your visit? For example, a routine cleaning, a check-up, or are you experiencing any pain? Based on that, I can find available times.",
-            False,
+        await self.session.generate_reply(
+            instructions="Okay, thank you. What is the reason for your visit? For example, a routine cleaning, a check-up, or are you experiencing any pain? Based on that, I can find available times."
         )
 
     @function_tool
@@ -850,12 +842,11 @@ class BookingConfirmationAgent(BaseFlowAgent):
             )
 
         assert True, (
-            "Conversation node booking_confirmation must define non-empty on_enter_text when using a prompt"
+            "Conversation node booking_confirmation (prompt) must define non-empty on_enter_text"
         )
 
-        await self.say_or_skip(
-            "Perfect. Your appointment is confirmed. You will receive a confirmation text shortly. Thank you for choosing Downtown Dental, and have a great day!",
-            False,
+        await self.session.generate_reply(
+            instructions="Perfect. Your appointment is confirmed. You will receive a confirmation text shortly. Thank you for choosing Downtown Dental, and have a great day!"
         )
 
     @function_tool
@@ -910,12 +901,11 @@ class VerifyPatientManageAgent(BaseFlowAgent):
             )
 
         assert True, (
-            "Conversation node verify_existing_patient_manage must define non-empty on_enter_text when using a prompt"
+            "Conversation node verify_existing_patient_manage (prompt) must define non-empty on_enter_text"
         )
 
-        await self.say_or_skip(
-            "I can certainly help with that. To find your appointment, could you please tell me your full name and date of birth?",
-            False,
+        await self.session.generate_reply(
+            instructions="I can certainly help with that. To find your appointment, could you please tell me your full name and date of birth?"
         )
 
     @function_tool
@@ -988,12 +978,11 @@ class ConfirmCancellationAgent(BaseFlowAgent):
             )
 
         assert True, (
-            "Conversation node confirm_cancellation must define non-empty on_enter_text when using a prompt"
+            "Conversation node confirm_cancellation (prompt) must define non-empty on_enter_text"
         )
 
-        await self.say_or_skip(
-            "Alright, I have successfully canceled your appointment. Is there anything else I can help with today?",
-            False,
+        await self.session.generate_reply(
+            instructions="Alright, I have successfully canceled your appointment. Is there anything else I can help with today?"
         )
 
     @function_tool
@@ -1043,12 +1032,11 @@ class AnswerFaqAgent(BaseFlowAgent):
             )
 
         assert True, (
-            "Conversation node answer_faq must define non-empty on_enter_text when using a prompt"
+            "Conversation node answer_faq (prompt) must define non-empty on_enter_text"
         )
 
-        await self.say_or_skip(
-            "Our office is open Monday to Friday from 8 AM to 5 PM. We are located at 123 Main Street. Is there anything else I can assist you with?",
-            False,
+        await self.session.generate_reply(
+            instructions="Our office is open Monday to Friday from 8 AM to 5 PM. We are located at 123 Main Street. Is there anything else I can assist you with?"
         )
 
     @function_tool
@@ -1121,10 +1109,12 @@ class GoodbyeAgent(BaseFlowAgent):
             )
 
         assert True, (
-            "Conversation node goodbye must define non-empty on_enter_text when using a prompt"
+            "Conversation node goodbye (prompt) must define non-empty on_enter_text"
         )
 
-        await self.say_or_skip("Thank you for calling. Have a wonderful day!", False)
+        await self.session.generate_reply(
+            instructions="Thank you for calling. Have a wonderful day!"
+        )
 
     @function_tool
     async def end_conversation(self) -> Optional[Agent]:

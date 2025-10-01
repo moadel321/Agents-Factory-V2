@@ -382,17 +382,21 @@ class {{ node.class_name }}(BaseFlowAgent):
             prev_node = flow_state.path[-2] if len(flow_state.path) >= 2 else None
             logger.info("[GEN-DEBUG] enter_node node_id=%s node_type=%s from=%r", "{{ node.id }}", "{{ node.type }}", prev_node)
 
-        {# Runtime validation: conversation prompt text must be non-empty when provided #}
-        {% if node.type == "conversation" and node.on_enter_text is not none %}
-        assert {{ 'True' if node.on_enter_text else 'False' }}, "Conversation node {{ node.id }} must define non-empty on_enter_text when using a prompt"
+        {# Runtime validation: prompt nodes must provide non-empty text for generation #}
+        {% if node.type == "conversation" and node.on_enter_type == "prompt" %}
+        assert {{ 'True' if node.on_enter_text else 'False' }}, "Conversation node {{ node.id }} (prompt) must define non-empty on_enter_text"
         {% endif %}
 
         {% if node.type == "conversation" %}
+        {% if node.on_enter_type == "static" %}
         {% if node.on_enter_text and not node.skip_response %}
-        await self.say_or_skip("{{ node.on_enter_text | replace('\n', '\\n') | replace('"', '\\"') }}", {{ 'True' if node.skip_response else 'False' }})
+        await self.say_or_skip("{{ node.on_enter_text | replace('\n', '\\n') | replace('"', '\\"') }}", False)
         {% endif %}
-
-        {# Intentionally do not call generate_reply here. Wait for user input to drive tool selection. #}
+        {% elif node.on_enter_type == "prompt" %}
+        {% if not node.skip_response %}
+        await self.session.generate_reply(instructions="{{ node.on_enter_text | replace('\n', '\\n') | replace('"', '\\"') }}")
+        {% endif %}
+        {% endif %}
 
         {% elif node.type == "function" %}
         # Execute function task and handoff via session (LiveKit-aligned)

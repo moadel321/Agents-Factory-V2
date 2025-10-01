@@ -43,6 +43,7 @@ class CodeGenerator:
         # Add custom filters
         self.env.filters['classify'] = self._classify
         self.env.filters['toolify'] = self._toolify
+        self.env.filters['ascii_slug'] = self._ascii_slug
         self.env.filters['jsonify'] = json.dumps
         
     @staticmethod
@@ -54,10 +55,21 @@ class CodeGenerator:
     
     @staticmethod
     def _toolify(name: str) -> str:
-        """Convert a name to a Python function name"""
-        safe = "".join(ch if ch.isalnum() else "_" for ch in name)
-        parts = [p for p in safe.split("_") if p]
-        return "go_" + "_".join(parts)
+        """Convert a display name to an ASCII-safe tool name"""
+        slug = CodeGenerator._ascii_slug(name)
+        return "go_" + (slug if slug else "tool")
+
+    @staticmethod
+    def _ascii_slug(name: str) -> str:
+        import unicodedata
+        normalized = unicodedata.normalize('NFKD', name or '')
+        ascii_str = normalized.encode('ascii', 'ignore').decode('ascii')
+        safe = ''.join(ch if (ch.isalnum() or ch in '-_') else '_' for ch in ascii_str)
+        parts = [p for p in safe.split('_') if p]
+        slug = '_'.join(parts)
+        if slug and slug[0].isdigit():
+            slug = f"n_{slug}"
+        return slug
     
     def generate_agent(
         self,
