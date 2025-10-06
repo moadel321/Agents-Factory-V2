@@ -352,6 +352,14 @@ This section details the structure of the input JSON file.
 | `timeout_ms` | integer | (Optional) Task execution timeout. |
 | `retries` | integer | (Optional) Number of retries on failure. |
 
+Optional execution behavior flags (Retell-like):
+
+- **`wait_for_result` (boolean, default: true)**: When true, the function node waits for the HTTP task to finish before transitioning. When false, the task runs in the background and the node transitions immediately (or after speaking if configured).
+- **`speak_during_execution` (object, optional)**: Configure speech while the function runs.
+  - `mode`: `"prompt"|"static"` (default `"static"`)
+  - `text`: string (required when `mode="static"`)
+  - `instructions`: string (required when `mode="prompt"`)
+
 ### Edge Object
 
 | Key | Type | Description |

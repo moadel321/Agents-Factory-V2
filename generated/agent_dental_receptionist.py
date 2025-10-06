@@ -262,6 +262,13 @@ FLOW_SPEC: Dict[str, Dict[str, Any]] = {
                 "name": "go_Answer_FAQ",
                 "description": "User is asking a general question like hours or location.",
             },
+            {
+                "edge_id": "edge_19",
+                "edge_type": "prompt",
+                "to_node_id": "execute_transfer",
+                "name": "go_Execute_Call_Transfer",
+                "description": "User asks to speak to a human (escalate/transfer).",
+            },
         ],
     },
     "ask_patient_type": {
@@ -402,29 +409,29 @@ FLOW_SPEC: Dict[str, Dict[str, Any]] = {
             }
         ],
     },
-    "prepare_transfer": {
-        "agent_class": "PrepareForTransferAgent",
-        "type": "conversation",
-        "edges": [
-            {
-                "edge_id": "edge_14",
-                "edge_type": "skip",
-                "to_node_id": "execute_transfer",
-                "name": "go_Execute_Call_Transfer",
-                "description": "Go to Execute Call Transfer",
-            }
-        ],
-    },
     "execute_transfer": {
         "agent_class": "ExecuteCallTransferAgent",
         "type": "function",
         "edges": [
             {
                 "edge_id": "edge_17",
-                "edge_type": "skip",
-                "to_node_id": None,
-                "name": "end_conversation",
-                "description": "End the conversation",
+                "edge_type": "prompt",
+                "to_node_id": "demo_wait_true",
+                "name": "go_Demo_Wait_True",
+                "description": "Proceed to demo wait=true function",
+            }
+        ],
+    },
+    "demo_wait_true": {
+        "agent_class": "DemoWaitTrueAgent",
+        "type": "function",
+        "edges": [
+            {
+                "edge_id": "edge_18",
+                "edge_type": "prompt",
+                "to_node_id": "goodbye",
+                "name": "go_Goodbye",
+                "description": "Demo done, go to goodbye",
             }
         ],
     },
@@ -582,6 +589,29 @@ class GreetingTriageAgent(BaseFlowAgent):
                 "prompt",
             )
         return AnswerFaqAgent(job_context=self.job_context)
+
+    @function_tool
+    async def go_Execute_Call_Transfer(self) -> Optional[Agent]:
+        """User asks to speak to a human (escalate/transfer)."""
+        flow_state: FlowState = self.session.userdata
+        self._enable_preemptive_generation()
+
+        if FLOW_GENERATION_MODE == "declarative":
+            next_agent = self._route_to("greeting_triage")
+            if next_agent:
+                return next_agent
+
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "greeting_triage",
+                "conversation",
+                "greeting_triage",
+                "execute_transfer",
+                "edge_19",
+                "prompt",
+            )
+        return ExecuteCallTransferAgent(job_context=self.job_context)
 
 
 class اسألنوعالمريضAgent(BaseFlowAgent):
@@ -1145,52 +1175,6 @@ class GoodbyeAgent(BaseFlowAgent):
         await self.end_call_if_needed()
 
 
-class PrepareForTransferAgent(BaseFlowAgent):
-    """Conversation node: prepare_transfer"""
-
-    def __init__(self, job_context: JobContext) -> None:
-        super().__init__(
-            job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
-        )
-
-    async def on_enter(self) -> None:
-        """Called when entering this node"""
-        flow_state: FlowState = self.session.userdata
-        flow_state.add_to_path("prepare_transfer")
-        if TEST_MODE:
-            prev_node = flow_state.path[-2] if len(flow_state.path) >= 2 else None
-            logger.info(
-                "[GEN-DEBUG] enter_node node_id=%s node_type=%s from=%r",
-                "prepare_transfer",
-                "conversation",
-                prev_node,
-            )
-
-    @function_tool
-    async def go_Execute_Call_Transfer(self) -> Optional[Agent]:
-        """Go to Execute Call Transfer"""
-        flow_state: FlowState = self.session.userdata
-        self._enable_preemptive_generation()
-
-        if FLOW_GENERATION_MODE == "declarative":
-            next_agent = self._route_to("prepare_transfer")
-            if next_agent:
-                return next_agent
-
-        if TEST_MODE:
-            logger.info(
-                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
-                "prepare_transfer",
-                "conversation",
-                "prepare_transfer",
-                "execute_transfer",
-                "edge_14",
-                "skip",
-            )
-        return ExecuteCallTransferAgent(job_context=self.job_context)
-
-
 class ExecuteCallTransferAgent(BaseFlowAgent):
     """Function node: execute_transfer"""
 
@@ -1220,103 +1204,116 @@ class ExecuteCallTransferAgent(BaseFlowAgent):
             return None
 
     async def _execute_function_task(self):
-        """Generic HTTP function execution"""
+        """Generic HTTP function execution with optional Retell-like behavior controls"""
         flow_state: FlowState = self.session.userdata
 
         # Runtime validation: function node required fields
-        assert "https://telephony.example.com/transfer" != "", (
+        assert "https://httpbin.org/delay/2" != "", (
             "Function node execute_transfer missing required field: url"
         )
-        assert "POST" in ["GET", "POST", "PUT", "DELETE", "PATCH"], (
-            "Function node execute_transfer has invalid method: POST"
+        assert "GET" in ["GET", "POST", "PUT", "DELETE", "PATCH"], (
+            "Function node execute_transfer has invalid method: GET"
         )
 
         try:
-            url = "https://telephony.example.com/transfer"
-            method = "POST"
-            headers = {"Content-Type": "application/json"}
+            # Optional speech during execution
+
+            url = "https://httpbin.org/delay/2"
+            method = "GET"
+            headers = {}
 
             # Interpolate body template with slots if provided (safe recursive formatting)
 
-            body_template = {
-                "destination_number": "+15551234567",
-                "metadata": {"practice": "Downtown Dental"},
-            }
-            safe_slots = _SafeSlots(**flow_state.slots)
-            body = _format_nested(body_template, safe_slots)
+            body = None
 
-            # Execute HTTP request with retries
-            max_attempts = 0 + 1
-            result = None
-
-            for attempt in range(max_attempts):
-                try:
-                    async with aiohttp.ClientSession(
-                        timeout=aiohttp.ClientTimeout(total=15000 / 1000)
-                    ) as session:
-                        method_fn = getattr(session, method.lower())
-
-                        if body:
-                            headers.setdefault("Content-Type", "application/json")
-                            async with method_fn(
-                                url, json=body, headers=headers
-                            ) as response:
-                                response_data = (
-                                    await response.json()
-                                    if response.content_type == "application/json"
-                                    else await response.text()
-                                )
+            # Helper to execute HTTP call with retries
+            async def _run_http_call():
+                max_attempts_local = 0 + 1
+                _result = None
+                for attempt in range(max_attempts_local):
+                    try:
+                        async with aiohttp.ClientSession(
+                            timeout=aiohttp.ClientTimeout(total=15000 / 1000)
+                        ) as session:
+                            method_fn = getattr(session, method.lower())
+                            if body:
+                                headers.setdefault("Content-Type", "application/json")
+                                async with method_fn(
+                                    url, json=body, headers=headers
+                                ) as response:
+                                    response_data = (
+                                        await response.json()
+                                        if response.content_type == "application/json"
+                                        else await response.text()
+                                    )
+                            else:
+                                async with method_fn(url, headers=headers) as response:
+                                    response_data = (
+                                        await response.json()
+                                        if response.content_type == "application/json"
+                                        else await response.text()
+                                    )
+                            _result = {
+                                "ok": response.status < 400,
+                                "status": response.status,
+                                "url": url,
+                                "response": response_data,
+                            }
+                            break
+                    except Exception as e:
+                        logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
+                        if attempt < max_attempts_local - 1:
+                            await asyncio.sleep(1)
                         else:
-                            async with method_fn(url, headers=headers) as response:
-                                response_data = (
-                                    await response.json()
-                                    if response.content_type == "application/json"
-                                    else await response.text()
-                                )
+                            _result = {"ok": False, "error": str(e)}
+                return _result
 
-                        result = {
-                            "ok": response.status < 400,
-                            "status": response.status,
-                            "url": url,
-                            "response": response_data,
-                        }
-                        break
+            # Prepare speech configuration (avoid scheduling generate_reply as a task)
+            _do_speak = False
+            _speak_mode = None
+            _speak_text = None
+            _speak_instructions = None
 
-                except Exception as e:
-                    logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
-                    if attempt < max_attempts - 1:
-                        await asyncio.sleep(1)
-                    else:
-                        result = {"ok": False, "error": str(e)}
+            _do_speak = True
+            _speak_mode = "static"
+            _speak_text = (
+                "Testing async function call. I will move on immediately after this."
+            )
 
-            # Store result
-            flow_state.task_results["execute_transfer"] = result
-            logger.info(f"Function task completed: {result}")
+            # Orchestration based on wait_for_result
+
+            # wait_for_result = False: start HTTP in background, speak (if configured), then transition
+            async def _background_call():
+                _res = await _run_http_call()
+                flow_state.task_results["execute_transfer"] = _res
+                logger.info(f"Function task completed (background): {_res}")
+
+            asyncio.create_task(_background_call())
+            if _do_speak and _speak_mode == "static":
+                await self.say_or_skip(_speak_text, False)
+            elif _do_speak and _speak_mode == "prompt":
+                await self.session.generate_reply(instructions=_speak_instructions)
+            result = None
 
         except Exception as e:
             logger.error(f"Function task failed: {e}")
             flow_state.task_results["execute_transfer"] = {"error": str(e)}
 
-        # Auto-advance after function execution
+        # Auto-advance after function execution (or immediately if not waiting)
 
         # Single edge - auto-advance
 
-        # Terminal edge -> EndAgent
         if TEST_MODE:
             logger.info(
                 "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
                 "execute_transfer",
                 "function",
                 "execute_transfer",
-                None,
+                "demo_wait_true",
                 "edge_17",
-                "skip",
+                "prompt",
             )
-        end_spec = FLOW_SPEC.get("__end__")
-        if end_spec and globals().get(end_spec.get("agent_class")):
-            return globals()[end_spec["agent_class"]](job_context=self.job_context)
-        await self._handle_terminal()
-        return None
+        return DemoWaitTrueAgent(job_context=self.job_context)
 
     @function_tool
     async def continue_next(self) -> Optional[Agent]:
@@ -1326,23 +1323,175 @@ class ExecuteCallTransferAgent(BaseFlowAgent):
             if next_agent:
                 return next_agent
 
-        # Terminal edge
         if TEST_MODE:
             logger.info(
                 "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
                 "execute_transfer",
                 "function",
                 "execute_transfer",
-                None,
+                "demo_wait_true",
                 "edge_17",
-                "skip",
+                "prompt",
             )
-        await self._handle_terminal()
-        return None
+        return DemoWaitTrueAgent(job_context=self.job_context)
 
-    async def _handle_terminal(self):
-        """Handle terminal node - end call"""
-        await self.end_call_if_needed()
+
+class DemoWaitTrueAgent(BaseFlowAgent):
+    """Function node: demo_wait_true"""
+
+    def __init__(self, job_context: JobContext) -> None:
+        super().__init__(
+            job_context=job_context,
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
+        )
+
+    async def on_enter(self) -> None:
+        """Called when entering this node"""
+        flow_state: FlowState = self.session.userdata
+        flow_state.add_to_path("demo_wait_true")
+        if TEST_MODE:
+            prev_node = flow_state.path[-2] if len(flow_state.path) >= 2 else None
+            logger.info(
+                "[GEN-DEBUG] enter_node node_id=%s node_type=%s from=%r",
+                "demo_wait_true",
+                "function",
+                prev_node,
+            )
+
+        # Execute function task and handoff via session (LiveKit-aligned)
+        next_agent = await self._execute_function_task()
+        if next_agent:
+            self.session.update_agent(next_agent)
+            return None
+
+    async def _execute_function_task(self):
+        """Generic HTTP function execution with optional Retell-like behavior controls"""
+        flow_state: FlowState = self.session.userdata
+
+        # Runtime validation: function node required fields
+        assert "https://httpbin.org/delay/2" != "", (
+            "Function node demo_wait_true missing required field: url"
+        )
+        assert "GET" in ["GET", "POST", "PUT", "DELETE", "PATCH"], (
+            "Function node demo_wait_true has invalid method: GET"
+        )
+
+        try:
+            # Optional speech during execution
+
+            url = "https://httpbin.org/delay/2"
+            method = "GET"
+            headers = {}
+
+            # Interpolate body template with slots if provided (safe recursive formatting)
+
+            body = None
+
+            # Helper to execute HTTP call with retries
+            async def _run_http_call():
+                max_attempts_local = 0 + 1
+                _result = None
+                for attempt in range(max_attempts_local):
+                    try:
+                        async with aiohttp.ClientSession(
+                            timeout=aiohttp.ClientTimeout(total=15000 / 1000)
+                        ) as session:
+                            method_fn = getattr(session, method.lower())
+                            if body:
+                                headers.setdefault("Content-Type", "application/json")
+                                async with method_fn(
+                                    url, json=body, headers=headers
+                                ) as response:
+                                    response_data = (
+                                        await response.json()
+                                        if response.content_type == "application/json"
+                                        else await response.text()
+                                    )
+                            else:
+                                async with method_fn(url, headers=headers) as response:
+                                    response_data = (
+                                        await response.json()
+                                        if response.content_type == "application/json"
+                                        else await response.text()
+                                    )
+                            _result = {
+                                "ok": response.status < 400,
+                                "status": response.status,
+                                "url": url,
+                                "response": response_data,
+                            }
+                            break
+                    except Exception as e:
+                        logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
+                        if attempt < max_attempts_local - 1:
+                            await asyncio.sleep(1)
+                        else:
+                            _result = {"ok": False, "error": str(e)}
+                return _result
+
+            # Prepare speech configuration (avoid scheduling generate_reply as a task)
+            _do_speak = False
+            _speak_mode = None
+            _speak_text = None
+            _speak_instructions = None
+
+            _do_speak = True
+            _speak_mode = "prompt"
+            _speak_instructions = (
+                "Testing wait=true. I will wait for the result before moving on."
+            )
+
+            # Orchestration based on wait_for_result
+
+            # wait_for_result = True: run HTTP concurrently, speak (if configured), then await result
+            _http_task = asyncio.create_task(_run_http_call())
+            if _do_speak and _speak_mode == "static":
+                await self.say_or_skip(_speak_text, False)
+            elif _do_speak and _speak_mode == "prompt":
+                await self.session.generate_reply(instructions=_speak_instructions)
+            result = await _http_task
+            flow_state.task_results["demo_wait_true"] = result
+            logger.info(f"Function task completed: {result}")
+
+        except Exception as e:
+            logger.error(f"Function task failed: {e}")
+            flow_state.task_results["demo_wait_true"] = {"error": str(e)}
+
+        # Auto-advance after function execution (or immediately if not waiting)
+
+        # Single edge - auto-advance
+
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "demo_wait_true",
+                "function",
+                "demo_wait_true",
+                "goodbye",
+                "edge_18",
+                "prompt",
+            )
+        return GoodbyeAgent(job_context=self.job_context)
+
+    @function_tool
+    async def continue_next(self) -> Optional[Agent]:
+        """Continue to next node after user confirmation or function completion"""
+        if FLOW_GENERATION_MODE == "declarative":
+            next_agent = self._route_to("demo_wait_true")
+            if next_agent:
+                return next_agent
+
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "demo_wait_true",
+                "function",
+                "demo_wait_true",
+                "goodbye",
+                "edge_18",
+                "prompt",
+            )
+        return GoodbyeAgent(job_context=self.job_context)
 
 
 def prewarm(proc):

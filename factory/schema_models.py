@@ -129,6 +129,14 @@ class FunctionSettings(BaseModel):
     body: Optional[dict] = None
     timeout_ms: Optional[int] = 10000
     retries: Optional[int] = 0
+    wait_for_result: Optional[bool] = True
+    class SpeakDuringExecution(BaseModel):
+        mode: Literal["prompt", "static"] = "static"
+        # If mode == "static", text should be provided
+        text: Optional[str] = None
+        # If mode == "prompt", instructions should be provided
+        instructions: Optional[str] = None
+    speak_during_execution: Optional[SpeakDuringExecution] = None
 
 
 class NodeOut(BaseModel):

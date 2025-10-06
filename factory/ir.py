@@ -88,6 +88,17 @@ def build_ir(flow: ConversationFlowOut) -> IRFlow:
                 "body": n.settings.body,
                 "timeout_ms": n.settings.timeout_ms,
                 "retries": n.settings.retries,
+                # Optional behavior controls
+                "wait_for_result": getattr(n.settings, "wait_for_result", True),
+                "speak_during_execution": (
+                    {
+                        "mode": getattr(getattr(n.settings, "speak_during_execution", None), "mode", None),
+                        "text": getattr(getattr(n.settings, "speak_during_execution", None), "text", None),
+                        "instructions": getattr(getattr(n.settings, "speak_during_execution", None), "instructions", None),
+                    }
+                    if getattr(n.settings, "speak_during_execution", None) is not None
+                    else None
+                ),
             })
         for e in out_edges.get(n.id, []):
             if e.to_node_id is not None:

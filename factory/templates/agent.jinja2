@@ -408,7 +408,7 @@ class {{ node.class_name }}(BaseFlowAgent):
 
     {% if node.type == "function" %}
     async def _execute_function_task(self):
-        """Generic HTTP function execution"""
+        """Generic HTTP function execution with optional Retell-like behavior controls"""
         flow_state: FlowState = self.session.userdata
 
         # Runtime validation: function node required fields
@@ -416,6 +416,10 @@ class {{ node.class_name }}(BaseFlowAgent):
         assert "{{ node.method }}" in ["GET", "POST", "PUT", "DELETE", "PATCH"], "Function node {{ node.id }} has invalid method: {{ node.method }}"
 
         try:
+            # Optional speech during execution
+            {% set speak = node.speak_during_execution %}
+            {% set wait_flag = node.wait_for_result %}
+
             url = "{{ node.url }}"
             method = "{{ node.method }}"
             headers = {{ node.headers | jsonify }}
@@ -429,47 +433,81 @@ class {{ node.class_name }}(BaseFlowAgent):
             body = None
             {% endif %}
 
-            # Execute HTTP request with retries
-            max_attempts = {{ node.retries }} + 1
-            result = None
-
-            for attempt in range(max_attempts):
-                try:
-                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total={{ node.timeout_ms }}/1000)) as session:
-                        method_fn = getattr(session, method.lower())
-
-                        if body:
-                            headers.setdefault("Content-Type", "application/json")
-                            async with method_fn(url, json=body, headers=headers) as response:
-                                response_data = await response.json() if response.content_type == 'application/json' else await response.text()
+            # Helper to execute HTTP call with retries
+            async def _run_http_call():
+                max_attempts_local = {{ node.retries }} + 1
+                _result = None
+                for attempt in range(max_attempts_local):
+                    try:
+                        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total={{ node.timeout_ms }}/1000)) as session:
+                            method_fn = getattr(session, method.lower())
+                            if body:
+                                headers.setdefault("Content-Type", "application/json")
+                                async with method_fn(url, json=body, headers=headers) as response:
+                                    response_data = await response.json() if response.content_type == 'application/json' else await response.text()
+                            else:
+                                async with method_fn(url, headers=headers) as response:
+                                    response_data = await response.json() if response.content_type == 'application/json' else await response.text()
+                            _result = {
+                                "ok": response.status < 400,
+                                "status": response.status,
+                                "url": url,
+                                "response": response_data
+                            }
+                            break
+                    except Exception as e:
+                        logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
+                        if attempt < max_attempts_local - 1:
+                            await asyncio.sleep(1)
                         else:
-                            async with method_fn(url, headers=headers) as response:
-                                response_data = await response.json() if response.content_type == 'application/json' else await response.text()
+                            _result = {"ok": False, "error": str(e)}
+                return _result
 
-                        result = {
-                            "ok": response.status < 400,
-                            "status": response.status,
-                            "url": url,
-                            "response": response_data
-                        }
-                        break
+            # Prepare speech configuration (avoid scheduling generate_reply as a task)
+            _do_speak = False
+            _speak_mode = None
+            _speak_text = None
+            _speak_instructions = None
+            {% if speak and speak.mode == 'static' and speak.text %}
+            _do_speak = True
+            _speak_mode = 'static'
+            _speak_text = "{{ speak.text | replace('\n','\\n') | replace('"','\\"') }}"
+            {% elif speak and speak.mode == 'prompt' and speak.instructions %}
+            _do_speak = True
+            _speak_mode = 'prompt'
+            _speak_instructions = "{{ speak.instructions | replace('\n','\\n') | replace('"','\\"') }}"
+            {% endif %}
 
-                except Exception as e:
-                    logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
-                    if attempt < max_attempts - 1:
-                        await asyncio.sleep(1)
-                    else:
-                        result = {"ok": False, "error": str(e)}
-
-            # Store result
+            # Orchestration based on wait_for_result
+            {% if wait_flag %}
+            # wait_for_result = True: run HTTP concurrently, speak (if configured), then await result
+            _http_task = asyncio.create_task(_run_http_call())
+            if _do_speak and _speak_mode == 'static':
+                await self.say_or_skip(_speak_text, False)
+            elif _do_speak and _speak_mode == 'prompt':
+                await self.session.generate_reply(instructions=_speak_instructions)
+            result = await _http_task
             flow_state.task_results["{{ node.id }}"] = result
             logger.info(f"Function task completed: {result}")
+            {% else %}
+            # wait_for_result = False: start HTTP in background, speak (if configured), then transition
+            async def _background_call():
+                _res = await _run_http_call()
+                flow_state.task_results["{{ node.id }}"] = _res
+                logger.info(f"Function task completed (background): {_res}")
+            asyncio.create_task(_background_call())
+            if _do_speak and _speak_mode == 'static':
+                await self.say_or_skip(_speak_text, False)
+            elif _do_speak and _speak_mode == 'prompt':
+                await self.session.generate_reply(instructions=_speak_instructions)
+            result = None
+            {% endif %}
 
         except Exception as e:
             logger.error(f"Function task failed: {e}")
             flow_state.task_results["{{ node.id }}"] = {"error": str(e)}
         
-        # Auto-advance after function execution
+        # Auto-advance after function execution (or immediately if not waiting)
         {% if node.out_edges|length == 1 %}
         # Single edge - auto-advance
         {% set edge = node.out_edges[0] %}
