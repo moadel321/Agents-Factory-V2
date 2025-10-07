@@ -347,8 +347,10 @@ This section details the structure of the input JSON file.
 
 | Key | Type | Description |
 |---|---|---|
-| `function_type`| string | One of `sms`, `call_transfer`, `rest_webhook`. |
-| `parameters_schema` | object | (Optional) A JSON schema to validate and extract parameters for the task. |
+| `url` | string | HTTP endpoint to call. |
+| `method` | string | One of `GET`, `POST`, `PUT`, `DELETE`, `PATCH`. |
+| `headers` | object | Optional HTTP headers map. |
+| `body` | object/null | Optional JSON body (supports `{slot}` interpolation). |
 | `timeout_ms` | integer | (Optional) Task execution timeout. |
 | `retries` | integer | (Optional) Number of retries on failure. |
 
@@ -481,8 +483,8 @@ The `agent.jinja2` template is organized into the following sections:
 4.  **Task Implementations**: The Python classes for the built-in tasks (`SendSMSTask`, `TransferCallTask`, `RestWebhookTask`) are included.
 5.  **Declarative FLOW_SPEC**: Maps each node to its class/type and edges. The router auto‑advances only on single‑edge nodes.
 6.  **Generated Agent Classes**: For each node, a Python class with:
-   - Conversation nodes with captures: one `collect(...)` tool to record values and advance.
-   - Conversation nodes without captures: only edge tools.
+   - Conversation nodes: edge tools for navigation (capture fields are currently inert).
+   - Function nodes: a generic HTTP execution method with optional wait/speak behavior.
    - Multi‑edge nodes: no router auto‑selection; require an explicit edge tool call.
 7.  **Entrypoint**: Standard `prewarm` and `entrypoint` for a LiveKit worker.
 
@@ -518,11 +520,13 @@ This directory contains the core logic for parsing, validating, and transforming
 -   `__init__.py`: Makes the `factory` directory a Python package.
 -   `cli.py`: Defines the command-line interface (`generate`, `batch`, `validate`) using `click`.
 -   `core.py`: Contains shared concepts; the generated file defines its own `FlowState` and `BaseFlowAgent`.
+ -   (removed) `core.py`: Previously contained duplicate `FlowState`/`BaseFlowAgent`; not used by generator.
 -   `generator.py`: Holds the `CodeGenerator` class that orchestrates the Jinja2 template rendering.
 -   `ir.py`: Converts the validated JSON schema into an Intermediate Representation for the template.
 -   `prompts.py`: Helper functions for building dynamic LLM prompts for routing and analysis.
 -   `schema_models.py`: Defines the Pydantic models that represent the authoritative schema for a flow JSON.
--   `tasks.py`: Contains the concrete `AgentTask` implementations for built-in functions (SMS, Call Transfer, etc.).
+ -   (removed) `tasks.py`: No longer present; function nodes use generic HTTP execution generated from the template.
+ -   `prompts.py`: Minimal placeholder (no current usage).
 -   `validator.py`: Provides functions to validate the integrity, structure, and logic of a flow JSON.
 -   `templates/agent.jinja2`: The Jinja2 template that defines the structure of the generated Python agent file.
     - Provider-aware selection of STT (Azure/AWS/Deepgram), LLM (OpenAI/Azure/Gemini), and TTS (ElevenLabs/AWS Polly) based on `stt_settings`, `llm_settings`, and `tts_settings`.
