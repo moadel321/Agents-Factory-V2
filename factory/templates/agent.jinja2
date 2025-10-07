@@ -293,6 +293,39 @@ class BaseFlowAgent(Agent):
         except Exception as e:
             logger.error(f"Error deleting room: {e}")
 
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        """After each user turn, inject concise function results into chat context.
+
+        This is silent (no speech); it only appends a short SYSTEM note so
+        subsequent LLM generations can condition on the last function results.
+        """
+        try:
+            flow_state: FlowState = self.session.userdata
+            # Inject each result once per node id
+            for _node_id, _res in (flow_state.task_results or {}).items():
+                _flag_key = f"_ctx_injected_{_node_id}"
+                if flow_state.slots.get(_flag_key):
+                    continue
+                _ok = None
+                _status = None
+                if isinstance(_res, dict):
+                    _ok = _res.get("ok")
+                    _status = _res.get("status")
+                _parts = []
+                if _ok is not None:
+                    _parts.append(f"ok={_ok}")
+                if _status is not None:
+                    _parts.append(f"status={_status}")
+                _summary = f"[fn:{_node_id}] " + (" ".join(_parts) if _parts else "result saved")
+                # Append to turn context for next generation
+                if hasattr(turn_ctx, "append"):
+                    turn_ctx.append(text=_summary, role="system")
+                    flow_state.slots[_flag_key] = True
+        except Exception as e:
+            logger.debug("on_user_turn_completed injection skipped: %s", e)
+
+    
+
 
 # Declarative FLOW_SPEC (node map)
 FLOW_SPEC: Dict[str, Dict[str, Any]] = {

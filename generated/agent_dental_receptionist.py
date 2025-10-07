@@ -234,6 +234,39 @@ class BaseFlowAgent(Agent):
         except Exception as e:
             logger.error(f"Error deleting room: {e}")
 
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        """After each user turn, inject concise function results into chat context.
+
+        This is silent (no speech); it only appends a short SYSTEM note so
+        subsequent LLM generations can condition on the last function results.
+        """
+        try:
+            flow_state: FlowState = self.session.userdata
+            # Inject each result once per node id
+            for _node_id, _res in (flow_state.task_results or {}).items():
+                _flag_key = f"_ctx_injected_{_node_id}"
+                if flow_state.slots.get(_flag_key):
+                    continue
+                _ok = None
+                _status = None
+                if isinstance(_res, dict):
+                    _ok = _res.get("ok")
+                    _status = _res.get("status")
+                _parts = []
+                if _ok is not None:
+                    _parts.append(f"ok={_ok}")
+                if _status is not None:
+                    _parts.append(f"status={_status}")
+                _summary = f"[fn:{_node_id}] " + (
+                    " ".join(_parts) if _parts else "result saved"
+                )
+                # Append to turn context for next generation
+                if hasattr(turn_ctx, "append"):
+                    turn_ctx.append(text=_summary, role="system")
+                    flow_state.slots[_flag_key] = True
+        except Exception as e:
+            logger.debug("on_user_turn_completed injection skipped: %s", e)
+
 
 # Declarative FLOW_SPEC (node map)
 FLOW_SPEC: Dict[str, Dict[str, Any]] = {
@@ -513,9 +546,7 @@ class GreetingTriageAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        assert True, (
-            "Conversation node greeting_triage (prompt) must define non-empty on_enter_text"
-        )
+        assert True, "Conversation node greeting_triage (prompt) must define non-empty on_enter_text"
 
         await self.session.generate_reply(
             instructions="Welcome the user and say hello in a different language, be creative"
@@ -709,9 +740,7 @@ class VerifyExistingPatientBookAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        assert True, (
-            "Conversation node verify_existing_patient_book (prompt) must define non-empty on_enter_text"
-        )
+        assert True, "Conversation node verify_existing_patient_book (prompt) must define non-empty on_enter_text"
 
         await self.session.generate_reply(
             instructions="Welcome back! To pull up your file, could you please tell me your full name and date of birth?"
@@ -763,9 +792,7 @@ class CollectNewPatientInfoAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        assert True, (
-            "Conversation node collect_new_patient_info (prompt) must define non-empty on_enter_text"
-        )
+        assert True, "Conversation node collect_new_patient_info (prompt) must define non-empty on_enter_text"
 
         await self.session.generate_reply(
             instructions="Welcome to our practice! To get you started, I'll need your full name and a good phone number to reach you at."
@@ -817,9 +844,7 @@ class OfferConfirmTimeAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        assert True, (
-            "Conversation node offer_and_confirm_time (prompt) must define non-empty on_enter_text"
-        )
+        assert True, "Conversation node offer_and_confirm_time (prompt) must define non-empty on_enter_text"
 
         await self.session.generate_reply(
             instructions="Okay, thank you. What is the reason for your visit? For example, a routine cleaning, a check-up, or are you experiencing any pain? Based on that, I can find available times."
@@ -871,9 +896,7 @@ class BookingConfirmationAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        assert True, (
-            "Conversation node booking_confirmation (prompt) must define non-empty on_enter_text"
-        )
+        assert True, "Conversation node booking_confirmation (prompt) must define non-empty on_enter_text"
 
         await self.session.generate_reply(
             instructions="Perfect. Your appointment is confirmed. You will receive a confirmation text shortly. Thank you for choosing Downtown Dental, and have a great day!"
@@ -930,9 +953,7 @@ class VerifyPatientManageAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        assert True, (
-            "Conversation node verify_existing_patient_manage (prompt) must define non-empty on_enter_text"
-        )
+        assert True, "Conversation node verify_existing_patient_manage (prompt) must define non-empty on_enter_text"
 
         await self.session.generate_reply(
             instructions="I can certainly help with that. To find your appointment, could you please tell me your full name and date of birth?"
@@ -1007,9 +1028,7 @@ class ConfirmCancellationAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        assert True, (
-            "Conversation node confirm_cancellation (prompt) must define non-empty on_enter_text"
-        )
+        assert True, "Conversation node confirm_cancellation (prompt) must define non-empty on_enter_text"
 
         await self.session.generate_reply(
             instructions="Alright, I have successfully canceled your appointment. Is there anything else I can help with today?"
@@ -1061,9 +1080,9 @@ class AnswerFaqAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        assert True, (
-            "Conversation node answer_faq (prompt) must define non-empty on_enter_text"
-        )
+        assert (
+            True
+        ), "Conversation node answer_faq (prompt) must define non-empty on_enter_text"
 
         await self.session.generate_reply(
             instructions="Our office is open Monday to Friday from 8 AM to 5 PM. We are located at 123 Main Street. Is there anything else I can assist you with?"
@@ -1138,9 +1157,9 @@ class GoodbyeAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        assert True, (
-            "Conversation node goodbye (prompt) must define non-empty on_enter_text"
-        )
+        assert (
+            True
+        ), "Conversation node goodbye (prompt) must define non-empty on_enter_text"
 
         await self.session.generate_reply(
             instructions="Thank you for calling. Have a wonderful day!"
@@ -1208,12 +1227,16 @@ class ExecuteCallTransferAgent(BaseFlowAgent):
         flow_state: FlowState = self.session.userdata
 
         # Runtime validation: function node required fields
-        assert "https://httpbin.org/delay/2" != "", (
-            "Function node execute_transfer missing required field: url"
-        )
-        assert "GET" in ["GET", "POST", "PUT", "DELETE", "PATCH"], (
-            "Function node execute_transfer has invalid method: GET"
-        )
+        assert (
+            "https://httpbin.org/delay/2" != ""
+        ), "Function node execute_transfer missing required field: url"
+        assert "GET" in [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH",
+        ], "Function node execute_transfer has invalid method: GET"
 
         try:
             # Optional speech during execution
@@ -1369,12 +1392,16 @@ class DemoWaitTrueAgent(BaseFlowAgent):
         flow_state: FlowState = self.session.userdata
 
         # Runtime validation: function node required fields
-        assert "https://httpbin.org/delay/2" != "", (
-            "Function node demo_wait_true missing required field: url"
-        )
-        assert "GET" in ["GET", "POST", "PUT", "DELETE", "PATCH"], (
-            "Function node demo_wait_true has invalid method: GET"
-        )
+        assert (
+            "https://httpbin.org/delay/2" != ""
+        ), "Function node demo_wait_true missing required field: url"
+        assert "GET" in [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH",
+        ], "Function node demo_wait_true has invalid method: GET"
 
         try:
             # Optional speech during execution

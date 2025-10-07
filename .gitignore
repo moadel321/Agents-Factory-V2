@@ -4,6 +4,7 @@
 .claude/
 
 .cursorignore
-factory/__pycache__/
+factory
+/__pycache__/
 __pycache__
 *.mcp.json
