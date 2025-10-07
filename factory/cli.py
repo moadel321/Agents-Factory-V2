@@ -135,8 +135,9 @@ def generate(input_file, output_file, output_dir, validate, strict, template_dir
                 for issue in code_issues:
                     logger.warning(f"  - {issue}")
 
-            # Format the generated code
-            run_ruff_formatting(output_file)
+            # Format the generated code if RUFF_FORMAT is enabled
+            if os.getenv('RUFF_FORMAT') == '1':
+                run_ruff_formatting(output_file)
 
             logger.info(f"Successfully generated agent: {output_file}")
             click.echo(f"Generated agent saved to: {output_file}")
@@ -209,8 +210,9 @@ def batch(input_dir, output_dir, pattern, validate, strict, template_dir, contin
                 output_file = os.path.join(output_dir, f"agent_{flow.url_id}.py")
                 generator.generate_agent(flow, output_file, validate=False)
 
-                # Format the generated code
-                run_ruff_formatting(output_file)
+                # Format the generated code if RUFF_FORMAT is enabled
+                if os.getenv('RUFF_FORMAT') == '1':
+                    run_ruff_formatting(output_file)
 
                 success_count += 1
                 logger.info(f"✓ Generated {flow_file.name} -> {output_file}")
@@ -298,7 +300,7 @@ def create_example(output_file):
             
             tts_settings=ElevenLabsTTSSettings(
                 tts_provider="elevenlabs",
-                model="eleven_monolingual_v1",
+                model="eleven_flash_v2_5",
                 voice_id="21m00Tcm4TlvDq8ikWAM",
                 voice_settings=ElevenLabsTTSSettings.VoiceSettings(
                     stability=0.5,
@@ -367,22 +369,13 @@ def create_example(output_file):
                     global_settings=None,
                     position=DisplayPosition(x=400, y=0),
                     type="function",
-                    settings=ConversationSettings(
-                        on_enter_text="",
-                        on_enter_type="static",
-                        allow_interruptions=False,
-                        skip_response=True,
-                        finetune_examples=[]
-                    ),
-                    function=FunctionSettings(
-                        function_type="sms",
-                        parameters_schema={
-                            "type": "object",
-                            "properties": {
-                                "to": {"type": "string", "description": "Phone number to send SMS to"},
-                                "body": {"type": "string", "description": "SMS message body"}
-                            },
-                            "required": ["to", "body"]
+                    settings=FunctionSettings(
+                        url="https://api.example.com/sms/send",
+                        method="POST",
+                        headers={"Content-Type": "application/json"},
+                        body={
+                            "to": "{phone}",
+                            "message": "Your pizza order has been confirmed! Thank you for choosing Pizza Palace."
                         },
                         timeout_ms=15000,
                         retries=2

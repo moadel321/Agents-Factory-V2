@@ -9,7 +9,7 @@ from ..schema_models import (
     ConversationFlowOut, NodeOut, EdgeOut,
     ConversationSettings, EdgePrompt, FunctionSettings,
     STTSettings, LLMSettings, CallSettings, DisplayPosition,
-    ElevenLabsTTSSettings, PostCallAnalysisSettings, PostCallAnalysisItem
+    ElevenLabsTTSSettings
 )
 
 
@@ -65,7 +65,7 @@ class TestBasicIRBuild:
             stt_settings=STTSettings(provider="google", language="en-US"),
             tts_settings=ElevenLabsTTSSettings(
                 tts_provider="elevenlabs",
-                model="eleven_monolingual_v1",
+                model="eleven_flash_v2_5",
                 voice_id="test_voice",
                 voice_settings=ElevenLabsTTSSettings.VoiceSettings(
                     stability=0.5,
@@ -175,22 +175,6 @@ class TestBasicIRBuild:
         assert ir.nodes[0]["class_name"] == "GreetingAgent"
         assert ir.nodes[0]["type"] == "conversation"
     
-    def test_node_instructions_combination(self):
-        """Test that node instructions are properly combined"""
-        flow = self.create_simple_flow()
-        
-        # Add global settings to first node
-        from ..schema_models import GlobalSettings
-        flow.nodes[0].global_settings = GlobalSettings(
-            prompt="Additional node instructions",
-            finetune_examples=[]
-        )
-        
-        ir = build_ir(flow)
-        
-        # Should combine flow instructions with node instructions
-        expected = "Test instructions\n\nAdditional node instructions"
-        assert ir.nodes[0]["instructions"] == expected
     
     def test_edge_tools_generation(self):
         """Test that edge tools are correctly generated"""
@@ -232,7 +216,7 @@ class TestFunctionNodeIR:
             stt_settings=STTSettings(provider="google", language="en-US"),
             tts_settings=ElevenLabsTTSSettings(
                 tts_provider="elevenlabs",
-                model="eleven_monolingual_v1",
+                model="eleven_flash_v2_5",
                 voice_id="test_voice",
                 voice_settings=ElevenLabsTTSSettings.VoiceSettings(
                     stability=0.5,
@@ -263,23 +247,13 @@ class TestFunctionNodeIR:
                     global_settings=None,
                     position=DisplayPosition(x=0, y=0),
                     type="function",
-                    settings=ConversationSettings(
-                        on_enter_text="",
-                        on_enter_type="static",
-                        allow_interruptions=False,
-                        skip_response=True,
-                        finetune_examples=[]
-                    ),
-                    function=FunctionSettings(
-                        function_type="sms",
-                        parameters_schema={
-                            "type": "object",
-                            "properties": {
-                                "to": {"type": "string", "description": "Phone number"},
-                                "body": {"type": "string", "description": "Message body"},
-                                "priority": {"type": "integer", "default": 1}
-                            },
-                            "required": ["to", "body"]
+                    settings=FunctionSettings(
+                        url="https://api.example.com/sms/send",
+                        method="POST",
+                        headers={"Content-Type": "application/json"},
+                        body={
+                            "to": "{phone}",
+                            "message": "{message}"
                         },
                         timeout_ms=15000,
                         retries=3
@@ -304,156 +278,16 @@ class TestFunctionNodeIR:
         """Test IR generation for function nodes"""
         flow = self.create_function_flow()
         ir = build_ir(flow)
-        
-        # Check task configs
-        assert "sms_node" in ir.task_configs
-        task_config = ir.task_configs["sms_node"]
-        
-        assert task_config.function_type == "sms"
-        assert task_config.timeout_ms == 15000
-        assert task_config.retries == 3
-        assert task_config.parameters_schema is not None
-        
+
         # Check node IR
         sms_node = ir.nodes[0]
         assert sms_node["type"] == "function"
-        assert "function" in sms_node
-        
-        func_info = sms_node["function"]
-        assert func_info["function_type"] == "sms"
-        assert func_info["timeout_ms"] == 15000
-        assert func_info["retries"] == 3
-    
-    def test_flow_state_fields_extraction(self):
-        """Test extraction of FlowState fields from function parameters"""
-        flow = self.create_function_flow()
-        ir = build_ir(flow)
-        
-        # Should extract fields from function parameters
-        assert len(ir.flow_state_fields) == 3  # to, body, priority
-        
-        field_names = {f.name for f in ir.flow_state_fields}
-        assert "to" in field_names
-        assert "body" in field_names
-        assert "priority" in field_names
-        
-        # Check field types
-        to_field = next(f for f in ir.flow_state_fields if f.name == "to")
-        body_field = next(f for f in ir.flow_state_fields if f.name == "body")
-        priority_field = next(f for f in ir.flow_state_fields if f.name == "priority")
-        
-        assert to_field.type_hint == "str"  # Required field
-        assert body_field.type_hint == "str"  # Required field
-        assert priority_field.type_hint == "Optional[int]"  # Optional field
-
-
-class TestPostCallAnalysisIR:
-    """Test IR building for post-call analysis"""
-    
-    def create_flow_with_analysis(self):
-        """Create a flow with post-call analysis"""
-        flow = ConversationFlowOut(
-            id="test_analysis_flow",
-            url_id="test_analysis_flow",
-            created=datetime.now(),
-            updated=datetime.now(),
-            name="Analysis Test Flow",
-            instructions="Test analysis flow",
-            
-            stt_settings=STTSettings(provider="google", language="en-US"),
-            tts_settings=ElevenLabsTTSSettings(
-                tts_provider="elevenlabs",
-                model="eleven_monolingual_v1",
-                voice_id="test_voice",
-                voice_settings=ElevenLabsTTSSettings.VoiceSettings(
-                    stability=0.5,
-                    similarity_boost=0.5
-                )
-            ),
-            llm_settings=LLMSettings(
-                provider="openai",
-                model="gpt-4o-mini",
-                temperature=0.7
-            ),
-            call_settings=CallSettings(
-                who_speaks_first="agent",
-                end_call_on_silence_ms=30000,
-                max_call_duration_ms=600000
-            ),
-            
-            post_call_analysis=PostCallAnalysisSettings(
-                model="gpt-4o-mini",
-                analysis_items=[
-                    PostCallAnalysisItem(
-                        name="satisfaction",
-                        description="Customer satisfaction level",
-                        type="selector",
-                        selector_options=["high", "medium", "low"]
-                    ),
-                    PostCallAnalysisItem(
-                        name="issues_found",
-                        description="Number of issues found",
-                        type="number"
-                    )
-                ]
-            ),
-            
-            begin_position=DisplayPosition(x=0, y=0),
-            start_node_id="greeting",
-            
-            nodes=[
-                NodeOut(
-                    id="greeting",
-                    created=datetime.now(),
-                    updated=datetime.now(),
-                    name="Greeting",
-                    is_global=False,
-                    global_settings=None,
-                    position=DisplayPosition(x=0, y=0),
-                    type="conversation",
-                    settings=ConversationSettings(
-                        on_enter_text="Hello",
-                        on_enter_type="prompt",
-                        allow_interruptions=True,
-                        skip_response=False,
-                        finetune_examples=[]
-                    )
-                )
-            ],
-            
-            edges=[
-                EdgeOut(
-                    id="edge1",
-                    created=datetime.now(),
-                    updated=datetime.now(),
-                    from_node_id="greeting",
-                    to_node_id=None,
-                    type="skip",
-                    settings=None
-                )
-            ]
-        )
-        return flow
-    
-    def test_post_call_analysis_ir(self):
-        """Test IR generation for post-call analysis"""
-        flow = self.create_flow_with_analysis()
-        ir = build_ir(flow)
-        
-        # Check post-call analysis config
-        assert ir.post_call_analysis is not None
-        assert ir.post_call_analysis.model == "gpt-4o-mini"
-        assert len(ir.post_call_analysis.analysis_items) == 2
-        
-        # Check analysis items
-        satisfaction_item = ir.post_call_analysis.analysis_items[0]
-        assert satisfaction_item["name"] == "satisfaction"
-        assert satisfaction_item["type"] == "selector"
-        assert satisfaction_item["selector_options"] == ["high", "medium", "low"]
-        
-        issues_item = ir.post_call_analysis.analysis_items[1]
-        assert issues_item["name"] == "issues_found"
-        assert issues_item["type"] == "number"
+        assert sms_node["url"] == "https://api.example.com/sms/send"
+        assert sms_node["method"] == "POST"
+        assert sms_node["headers"] == {"Content-Type": "application/json"}
+        assert sms_node["body"] == {"to": "{phone}", "message": "{message}"}
+        assert sms_node["timeout_ms"] == 15000
+        assert sms_node["retries"] == 3
 
 
 class TestCallSettingsIR:
@@ -472,7 +306,7 @@ class TestCallSettingsIR:
             stt_settings=STTSettings(provider="google", language="en-US"),
             tts_settings=ElevenLabsTTSSettings(
                 tts_provider="elevenlabs",
-                model="eleven_monolingual_v1",
+                model="eleven_flash_v2_5",
                 voice_id="test_voice",
                 voice_settings=ElevenLabsTTSSettings.VoiceSettings(
                     stability=0.5,

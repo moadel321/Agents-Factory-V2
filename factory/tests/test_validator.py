@@ -5,10 +5,8 @@ import pytest
 from datetime import datetime
 
 from ..validator import (
-    validate_flow, 
+    validate_flow,
     FlowValidationError,
-    FunctionNodeValidationError,
-    SchemaValidationError,
     validate_generated_code
 )
 from ..schema_models import (
@@ -32,7 +30,7 @@ def create_basic_flow():
         stt_settings=STTSettings(provider="google", language="en-US"),
         tts_settings=ElevenLabsTTSSettings(
             tts_provider="elevenlabs",
-            model="eleven_monolingual_v1", 
+            model="eleven_flash_v2_5", 
             voice_id="test_voice",
             voice_settings=ElevenLabsTTSSettings.VoiceSettings(
                 stability=0.5,
@@ -145,24 +143,13 @@ class TestNodeValidation:
         with pytest.raises(FlowValidationError, match="must have on_enter_text"):
             validate_flow(flow, strict=False)
     
-    def test_function_node_missing_function_fails(self):
-        """Test that function node without function config fails"""
+    def test_function_node_missing_settings_fails(self):
+        """Test that function node without settings fails"""
         flow = create_basic_flow()
         flow.nodes[0].type = "function"
-        flow.nodes[0].function = None
-        
-        with pytest.raises(FunctionNodeValidationError, match="missing function configuration"):
-            validate_flow(flow, strict=False)
-    
-    def test_function_node_unknown_type_fails(self):
-        """Test that unknown function type fails"""
-        flow = create_basic_flow()
-        flow.nodes[0].type = "function"
-        flow.nodes[0].function = FunctionSettings(
-            function_type="unknown_type"
-        )
-        
-        with pytest.raises(FunctionNodeValidationError, match="Unknown function type"):
+        flow.nodes[0].settings = None
+
+        with pytest.raises(FlowValidationError, match="missing settings"):
             validate_flow(flow, strict=False)
 
 
@@ -250,72 +237,6 @@ class TestEdgeValidation:
         
         with pytest.raises(FlowValidationError, match="No terminal path found"):
             validate_flow(flow, strict=False)
-
-
-class TestFunctionSchemaValidation:
-    def test_invalid_json_schema_fails(self):
-        """Test that invalid JSON schema fails"""
-        flow = create_basic_flow()
-        flow.nodes[0].type = "function"
-        flow.nodes[0].function = FunctionSettings(
-            function_type="sms",
-            parameters_schema={"type": "invalid_type"}  # Invalid schema
-        )
-        
-        with pytest.raises(SchemaValidationError, match="Invalid JSON Schema"):
-            validate_flow(flow, strict=False)
-    
-    def test_sms_missing_properties_fails(self):
-        """Test that SMS schema without required properties fails"""
-        flow = create_basic_flow()
-        flow.nodes[0].type = "function"
-        flow.nodes[0].function = FunctionSettings(
-            function_type="sms",
-            parameters_schema={
-                "type": "object",
-                "properties": {"body": {"type": "string"}}  # Missing 'to'
-            }
-        )
-        
-        with pytest.raises(SchemaValidationError, match="missing required properties"):
-            validate_flow(flow, strict=False)
-    
-    def test_sms_wrong_property_type_fails(self):
-        """Test that SMS schema with wrong property types fails"""
-        flow = create_basic_flow()
-        flow.nodes[0].type = "function"
-        flow.nodes[0].function = FunctionSettings(
-            function_type="sms",
-            parameters_schema={
-                "type": "object",
-                "properties": {
-                    "to": {"type": "number"},  # Should be string
-                    "body": {"type": "string"}
-                }
-            }
-        )
-        
-        with pytest.raises(SchemaValidationError, match="must be string type"):
-            validate_flow(flow, strict=False)
-    
-    def test_valid_sms_schema_passes(self):
-        """Test that valid SMS schema passes"""
-        flow = create_basic_flow()
-        flow.nodes[0].type = "function"
-        flow.nodes[0].function = FunctionSettings(
-            function_type="sms",
-            parameters_schema={
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string"},
-                    "body": {"type": "string"}
-                },
-                "required": ["to", "body"]
-            }
-        )
-        
-        # Should not raise exception
-        validate_flow(flow, strict=False)
 
 
 class TestCodeValidation:

@@ -248,27 +248,6 @@
       }
     },
     {
-      "id": "prepare_transfer",
-      "created": "2024-10-26T10:00:00",
-      "updated": "2024-10-26T10:00:00",
-      "name": "Prepare for Transfer",
-      "is_global": true,
-      "global_settings": {
-        "prompt": "The user is asking to speak to a person, has an emergency, is frustrated, or is asking about something complex like billing or insurance.",
-        "finetune_examples": []
-      },
-      "position": { "x": 0, "y": 600 },
-      "type": "conversation",
-      "settings": {
-        "on_enter_text": "I understand. Let me connect you with one of our receptionists who can best assist you. Please hold for one moment.",
-        "on_enter_type": "static",
-        "allow_interruptions": false,
-        "skip_response": true,
-        "finetune_examples": [],
-        "llm_overrides": null
-      }
-    },
-    {
       "id": "execute_transfer",
       "created": "2024-10-26T10:00:00",
       "updated": "2024-10-26T10:00:00",
@@ -278,19 +257,40 @@
       "position": { "x": 250, "y": 600 },
       "type": "function",
       "settings": {
-        "url": "https://telephony.example.com/transfer",
-        "method": "POST",
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "destination_number": "+15551234567",
-          "metadata": {
-            "practice": "Downtown Dental"
-          }
-        },
+        "url": "https://httpbin.org/delay/2",
+        "method": "GET",
+        "headers": {},
+        "body": null,
         "timeout_ms": 15000,
-        "retries": 0
+        "retries": 0,
+        "wait_for_result": false,
+        "speak_during_execution": {
+          "mode": "static",
+          "text": "Testing async function call. I will move on immediately after this."
+        }
+      }
+    },
+    {
+      "id": "demo_wait_true",
+      "created": "2024-10-26T10:00:00",
+      "updated": "2024-10-26T10:00:00",
+      "name": "Demo Wait True",
+      "is_global": false,
+      "global_settings": null,
+      "position": { "x": 500, "y": 600 },
+      "type": "function",
+      "settings": {
+        "url": "https://httpbin.org/delay/2",
+        "method": "GET",
+        "headers": {},
+        "body": null,
+        "timeout_ms": 15000,
+        "retries": 0,
+        "wait_for_result": true,
+        "speak_during_execution": {
+          "mode": "prompt",
+          "instructions": "Testing wait=true. I will wait for the result before moving on."
+        }
       }
     }
   ],
@@ -309,6 +309,11 @@
       "id": "edge_3", "created": "2024-10-26T10:00:00", "updated": "2024-10-26T10:00:00",
       "from_node_id": "greeting_triage", "to_node_id": "answer_faq", "type": "prompt",
       "settings": { "prompt": "User is asking a general question like hours or location." }
+    },
+    {
+      "id": "edge_19", "created": "2024-10-26T10:00:00", "updated": "2024-10-26T10:00:00",
+      "from_node_id": "greeting_triage", "to_node_id": "execute_transfer", "type": "prompt",
+      "settings": { "prompt": "User asks to speak to a human (escalate/transfer)." }
     },
     {
       "id": "edge_4", "created": "2024-10-26T10:00:00", "updated": "2024-10-26T10:00:00",
@@ -360,11 +365,7 @@
       "from_node_id": "confirm_cancellation", "to_node_id": "goodbye", "type": "prompt",
       "settings": { "prompt": "User has no more questions after cancelling." }
     },
-    {
-      "id": "edge_14", "created": "2024-10-26T10:00:00", "updated": "2024-10-26T10:00:00",
-      "from_node_id": "prepare_transfer", "to_node_id": "execute_transfer", "type": "skip",
-      "settings": null
-    },
+    
     {
       "id": "edge_15", "created": "2024-10-26T10:00:00", "updated": "2024-10-26T10:00:00",
       "from_node_id": "goodbye", "to_node_id": null, "type": "skip",
@@ -377,8 +378,13 @@
     },
     {
       "id": "edge_17", "created": "2024-10-26T10:00:00", "updated": "2024-10-26T10:00:00",
-      "from_node_id": "execute_transfer", "to_node_id": null, "type": "skip",
-      "settings": null
+      "from_node_id": "execute_transfer", "to_node_id": "demo_wait_true", "type": "prompt",
+      "settings": { "prompt": "Proceed to demo wait=true function" }
+    },
+    {
+      "id": "edge_18", "created": "2024-10-26T10:00:00", "updated": "2024-10-26T10:00:00",
+      "from_node_id": "demo_wait_true", "to_node_id": "goodbye", "type": "prompt",
+      "settings": { "prompt": "Demo done, go to goodbye" }
     }
   ]
 }

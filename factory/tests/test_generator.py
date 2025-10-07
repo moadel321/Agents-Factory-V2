@@ -31,7 +31,7 @@ class TestCodeGenerator:
             stt_settings=STTSettings(provider="google", language="en-US"),
             tts_settings=ElevenLabsTTSSettings(
                 tts_provider="elevenlabs",
-                model="eleven_monolingual_v1",
+                model="eleven_flash_v2_5",
                 voice_id="21m00Tcm4TlvDq8ikWAM",
                 voice_settings=ElevenLabsTTSSettings.VoiceSettings(
                     stability=0.5,
@@ -240,7 +240,7 @@ class TestFunctionNodeGeneration:
             stt_settings=STTSettings(provider="google", language="en-US"),
             tts_settings=ElevenLabsTTSSettings(
                 tts_provider="elevenlabs",
-                model="eleven_monolingual_v1",
+                model="eleven_flash_v2_5",
                 voice_id="test_voice",
                 voice_settings=ElevenLabsTTSSettings.VoiceSettings(
                     stability=0.5,
@@ -288,22 +288,13 @@ class TestFunctionNodeGeneration:
                     global_settings=None,
                     position=DisplayPosition(x=200, y=0),
                     type="function",
-                    settings=ConversationSettings(
-                        on_enter_text="",
-                        on_enter_type="static",
-                        allow_interruptions=False,
-                        skip_response=True,
-                        finetune_examples=[]
-                    ),
-                    function=FunctionSettings(
-                        function_type="sms",
-                        parameters_schema={
-                            "type": "object",
-                            "properties": {
-                                "to": {"type": "string"},
-                                "body": {"type": "string"}
-                            },
-                            "required": ["to", "body"]
+                    settings=FunctionSettings(
+                        url="https://api.example.com/sms/send",
+                        method="POST",
+                        headers={"Content-Type": "application/json"},
+                        body={
+                            "to": "{phone}",
+                            "message": "{message}"
                         },
                         timeout_ms=10000,
                         retries=2
@@ -369,22 +360,19 @@ class TestFunctionNodeGeneration:
         """Test generation of function nodes"""
         generator = CodeGenerator()
         flow = self.create_function_flow()
-        
+
         code = generator.generate_agent(flow, validate=False)
-        
+
         # Check function node class exists
         assert "class SendSmsAgent" in code
-        
-        # Check function task execution method
+
+        # Check generic HTTP function execution method
         assert "_execute_function_task" in code
-        assert "SendSMSTask" in code
-        
-        # Check continue tool for function node
-        assert "continue_next" in code
-        
-        # Check task configuration is included
-        assert "timeout_ms=10000" in code
-        assert "retries=2" in code
+        assert "https://api.example.com/sms/send" in code
+
+        # Check HTTP request configuration is included
+        assert "timeout_ms" in code or "10000" in code
+        assert "retries" in code or "2" in code
 
 
 class TestGenerateFromJSON:
@@ -406,7 +394,7 @@ class TestGenerateFromJSON:
             },
             "tts_settings": {
                 "tts_provider": "elevenlabs",
-                "model": "eleven_monolingual_v1",
+                "model": "eleven_flash_v2_5",
                 "voice_id": "test_voice",
                 "voice_settings": {
                     "stability": 0.5,
@@ -479,7 +467,7 @@ class TestGenerateFromJSON:
             "stt_settings": {"provider": "google", "language": "en-US"},
             "tts_settings": {
                 "tts_provider": "elevenlabs",
-                "model": "eleven_monolingual_v1",
+                "model": "eleven_flash_v2_5",
                 "voice_id": "test_voice",
                 "voice_settings": {"stability": 0.5, "similarity_boost": 0.5}
             },

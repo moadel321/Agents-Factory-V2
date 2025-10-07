@@ -1,6 +1,5 @@
 import os
 import logging
-import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
@@ -25,6 +24,26 @@ except Exception:
 from livekit import api
 import aiohttp
 import asyncio
+
+
+# Safe formatting helpers for templated bodies
+class _SafeSlots(dict):
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def _format_nested(value, mapping):
+    if isinstance(value, str):
+        try:
+            return value.format_map(mapping)
+        except Exception:
+            return value
+    if isinstance(value, dict):
+        return {k: _format_nested(v, mapping) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_format_nested(v, mapping) for v in value]
+    return value
+
 
 # Load environment and configure logger
 # Load .env then .env.local (allow .env.local to override)
@@ -215,182 +234,38 @@ class BaseFlowAgent(Agent):
         except Exception as e:
             logger.error(f"Error deleting room: {e}")
 
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        """After each user turn, inject concise function results into chat context.
 
-# Task implementations
-class SendSMSTask:
-    def __init__(self, chat_ctx):
-        self.chat_ctx = chat_ctx
-
-    async def run(
-        self, to: str, body: str, timeout_ms: int = 10000, retries: int = 0
-    ) -> Dict[str, Any]:
-        """Send SMS via webhook or Twilio"""
-        # Check for test mode first
-        test_mode = os.getenv("FACTORY_TEST_MODE", "false").lower() == "true"
-        if test_mode:
-            logger.info(f"TEST MODE: Mocking SMS send to {to}: {body}")
-            # Simulate realistic delay
-            await asyncio.sleep(0.2)  # 200ms delay
-            import uuid
-            from datetime import datetime
-
-            return {
-                "sent": True,
-                "to": to,
-                "body": body,
-                "method": "mock",
-                "test_mode": True,
-                "message_id": f"test_msg_{uuid.uuid4().hex[:8]}",
-                "timestamp": datetime.now().isoformat(),
-            }
-
-        max_attempts = retries + 1
-
-        for attempt in range(max_attempts):
-            try:
-                # Try webhook first if configured
-                webhook_url = os.getenv("SMS_WEBHOOK_URL")
-                if webhook_url:
-                    async with aiohttp.ClientSession(
-                        timeout=aiohttp.ClientTimeout(total=timeout_ms / 1000)
-                    ) as session:
-                        async with session.post(
-                            webhook_url, json={"to": to, "body": body}
-                        ) as response:
-                            if response.status == 200:
-                                return {"sent": True, "to": to, "method": "webhook"}
-
-                # Fallback to Twilio if configured
-                twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
-                twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
-                twilio_from = os.getenv("TWILIO_FROM_NUMBER")
-
-                if twilio_sid and twilio_token and twilio_from:
-                    # Implement Twilio SMS sending
-                    logger.info(
-                        f"Would send SMS via Twilio from {twilio_from} to {to}: {body}"
-                    )
-                    return {"sent": True, "to": to, "method": "twilio"}
-
-                # Mock response if no real provider configured
-                logger.warning("No SMS provider configured, mocking SMS send")
-                return {"sent": True, "to": to, "method": "mock"}
-
-            except Exception as e:
-                logger.error(f"SMS send attempt {attempt + 1} failed: {e}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(1)
-                else:
-                    return {"sent": False, "error": str(e)}
-
-        return {"sent": False, "error": "Max retries exceeded"}
-
-
-class TransferCallTask:
-    def __init__(self, chat_ctx, job_context):
-        self.chat_ctx = chat_ctx
-        self.job_context = job_context
-
-    async def run(
-        self, phone_number: str, timeout_ms: int = 10000, retries: int = 0
-    ) -> Dict[str, Any]:
-        """Transfer call using LiveKit SIP"""
-        # Check for test mode first
-        test_mode = os.getenv("FACTORY_TEST_MODE", "false").lower() == "true"
-        if test_mode:
-            logger.info(f"TEST MODE: Mocking call transfer to {phone_number}")
-            # Simulate realistic SIP setup delay
-            await asyncio.sleep(0.5)  # 500ms delay
-            import uuid
-            from datetime import datetime
-
-            return {
-                "transferred": True,
-                "to": phone_number,
-                "method": "mock",
-                "test_mode": True,
-                "participant_id": f"test_participant_{uuid.uuid4().hex[:8]}",
-                "sip_trunk_id": "test_trunk",
-                "room_name": self.job_context.room.name,
-                "timestamp": datetime.now().isoformat(),
-            }
-
+        This is silent (no speech); it only appends a short SYSTEM note so
+        subsequent LLM generations can condition on the last function results.
+        """
         try:
-            sip_trunk_id = os.getenv("SIP_TRUNK_ID")
-            if not sip_trunk_id:
-                logger.warning("No SIP trunk configured, mocking transfer")
-                return {"transferred": True, "to": phone_number, "method": "mock"}
-
-            # Create SIP participant for transfer
-            logger.info(f"Transferring call to {phone_number}")
-            participant = await self.job_context.api.sip.create_sip_participant(
-                api.CreateSIPParticipantRequest(
-                    room_name=self.job_context.room.name,
-                    sip_trunk_id=sip_trunk_id,
-                    sip_call_to=phone_number,
+            flow_state: FlowState = self.session.userdata
+            # Inject each result once per node id
+            for _node_id, _res in (flow_state.task_results or {}).items():
+                _flag_key = f"_ctx_injected_{_node_id}"
+                if flow_state.slots.get(_flag_key):
+                    continue
+                _ok = None
+                _status = None
+                if isinstance(_res, dict):
+                    _ok = _res.get("ok")
+                    _status = _res.get("status")
+                _parts = []
+                if _ok is not None:
+                    _parts.append(f"ok={_ok}")
+                if _status is not None:
+                    _parts.append(f"status={_status}")
+                _summary = f"[fn:{_node_id}] " + (
+                    " ".join(_parts) if _parts else "result saved"
                 )
-            )
-
-            return {
-                "transferred": True,
-                "to": phone_number,
-                "participant_id": participant.participant.identity,
-            }
-
+                # Append to turn context for next generation
+                if hasattr(turn_ctx, "append"):
+                    turn_ctx.append(text=_summary, role="system")
+                    flow_state.slots[_flag_key] = True
         except Exception as e:
-            logger.error(f"Transfer failed: {e}")
-            return {"transferred": False, "error": str(e)}
-
-
-class RestWebhookTask:
-    def __init__(self, chat_ctx):
-        self.chat_ctx = chat_ctx
-
-    async def run(
-        self,
-        method: str,
-        url: str,
-        headers: Optional[Dict[str, str]] = None,
-        body: Optional[Dict[str, Any]] = None,
-        timeout_ms: int = 10000,
-        retries: int = 0,
-    ) -> Dict[str, Any]:
-        """Make HTTP request with retries"""
-        max_attempts = retries + 1
-        headers = headers or {}
-
-        for attempt in range(max_attempts):
-            try:
-                async with aiohttp.ClientSession(
-                    timeout=aiohttp.ClientTimeout(total=timeout_ms / 1000)
-                ) as session:
-                    method_fn = getattr(session, method.lower())
-
-                    if body:
-                        headers.setdefault("Content-Type", "application/json")
-                        async with method_fn(
-                            url, json=body, headers=headers
-                        ) as response:
-                            response_data = await response.json()
-                    else:
-                        async with method_fn(url, headers=headers) as response:
-                            response_data = await response.json()
-
-                    return {
-                        "ok": response.status < 400,
-                        "status": response.status,
-                        "url": url,
-                        "response": response_data,
-                    }
-
-            except Exception as e:
-                logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(1)
-                else:
-                    return {"ok": False, "error": str(e)}
-
-        return {"ok": False, "error": "Max retries exceeded"}
+            logger.debug("on_user_turn_completed injection skipped: %s", e)
 
 
 # Declarative FLOW_SPEC (node map)
@@ -403,7 +278,7 @@ FLOW_SPEC: Dict[str, Dict[str, Any]] = {
                 "edge_id": "edge_1",
                 "edge_type": "prompt",
                 "to_node_id": "ask_patient_type",
-                "name": "go_Ask_Patient_Type",
+                "name": "go_edge_1_ask_patient_type",
                 "description": "User wants to book a new appointment or reschedule.",
             },
             {
@@ -420,10 +295,17 @@ FLOW_SPEC: Dict[str, Dict[str, Any]] = {
                 "name": "go_Answer_FAQ",
                 "description": "User is asking a general question like hours or location.",
             },
+            {
+                "edge_id": "edge_19",
+                "edge_type": "prompt",
+                "to_node_id": "execute_transfer",
+                "name": "go_Execute_Call_Transfer",
+                "description": "User asks to speak to a human (escalate/transfer).",
+            },
         ],
     },
     "ask_patient_type": {
-        "agent_class": "AskPatientTypeAgent",
+        "agent_class": "اسألنوعالمريضAgent",
         "type": "conversation",
         "edges": [
             {
@@ -560,29 +442,29 @@ FLOW_SPEC: Dict[str, Dict[str, Any]] = {
             }
         ],
     },
-    "prepare_transfer": {
-        "agent_class": "PrepareForTransferAgent",
-        "type": "conversation",
-        "edges": [
-            {
-                "edge_id": "edge_14",
-                "edge_type": "skip",
-                "to_node_id": "execute_transfer",
-                "name": "go_Execute_Call_Transfer",
-                "description": "Go to Execute Call Transfer",
-            }
-        ],
-    },
     "execute_transfer": {
         "agent_class": "ExecuteCallTransferAgent",
         "type": "function",
         "edges": [
             {
                 "edge_id": "edge_17",
-                "edge_type": "skip",
-                "to_node_id": None,
-                "name": "end_conversation",
-                "description": "End the conversation",
+                "edge_type": "prompt",
+                "to_node_id": "demo_wait_true",
+                "name": "go_Demo_Wait_True",
+                "description": "Proceed to demo wait=true function",
+            }
+        ],
+    },
+    "demo_wait_true": {
+        "agent_class": "DemoWaitTrueAgent",
+        "type": "function",
+        "edges": [
+            {
+                "edge_id": "edge_18",
+                "edge_type": "prompt",
+                "to_node_id": "goodbye",
+                "name": "go_Goodbye",
+                "description": "Demo done, go to goodbye",
             }
         ],
     },
@@ -648,7 +530,7 @@ class GreetingTriageAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -664,13 +546,14 @@ class GreetingTriageAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip(
-            "Thank you for calling Downtown Dental. This is the automated assistant. How can I help you today? You can say things like 'I'd like to book an appointment' or 'what are your office hours?'",
-            False,
+        assert True, "Conversation node greeting_triage (prompt) must define non-empty on_enter_text"
+
+        await self.session.generate_reply(
+            instructions="Welcome the user and say hello in a different language, be creative"
         )
 
     @function_tool
-    async def go_Ask_Patient_Type(self) -> Optional[Agent]:
+    async def go_edge_1_ask_patient_type(self) -> Optional[Agent]:
         """User wants to book a new appointment or reschedule."""
         flow_state: FlowState = self.session.userdata
         self._enable_preemptive_generation()
@@ -690,7 +573,7 @@ class GreetingTriageAgent(BaseFlowAgent):
                 "edge_1",
                 "prompt",
             )
-        return AskPatientTypeAgent(job_context=self.job_context)
+        return اسألنوعالمريضAgent(job_context=self.job_context)
 
     @function_tool
     async def go_Verify_Patient_Manage(self) -> Optional[Agent]:
@@ -738,54 +621,37 @@ class GreetingTriageAgent(BaseFlowAgent):
             )
         return AnswerFaqAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
+    @function_tool
+    async def go_Execute_Call_Transfer(self) -> Optional[Agent]:
+        """User asks to speak to a human (escalate/transfer)."""
+        flow_state: FlowState = self.session.userdata
+        self._enable_preemptive_generation()
 
-        try:
-            flow_state: FlowState = self.session.userdata
+        if FLOW_GENERATION_MODE == "declarative":
+            next_agent = self._route_to("greeting_triage")
+            if next_agent:
+                return next_agent
 
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "greeting_triage",
+                "conversation",
+                "greeting_triage",
+                "execute_transfer",
+                "edge_19",
+                "prompt",
+            )
+        return ExecuteCallTransferAgent(job_context=self.job_context)
 
 
-class AskPatientTypeAgent(BaseFlowAgent):
+class اسألنوعالمريضAgent(BaseFlowAgent):
     """Conversation node: ask_patient_type"""
 
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -851,46 +717,6 @@ class AskPatientTypeAgent(BaseFlowAgent):
             )
         return CollectNewPatientInfoAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class VerifyExistingPatientBookAgent(BaseFlowAgent):
     """Conversation node: verify_existing_patient_book"""
@@ -898,7 +724,7 @@ class VerifyExistingPatientBookAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -914,9 +740,10 @@ class VerifyExistingPatientBookAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip(
-            "Welcome back! To pull up your file, could you please tell me your full name and date of birth?",
-            False,
+        assert True, "Conversation node verify_existing_patient_book (prompt) must define non-empty on_enter_text"
+
+        await self.session.generate_reply(
+            instructions="Welcome back! To pull up your file, could you please tell me your full name and date of birth?"
         )
 
     @function_tool
@@ -942,46 +769,6 @@ class VerifyExistingPatientBookAgent(BaseFlowAgent):
             )
         return OfferConfirmTimeAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class CollectNewPatientInfoAgent(BaseFlowAgent):
     """Conversation node: collect_new_patient_info"""
@@ -989,7 +776,7 @@ class CollectNewPatientInfoAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -1005,9 +792,10 @@ class CollectNewPatientInfoAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip(
-            "Welcome to our practice! To get you started, I'll need your full name and a good phone number to reach you at.",
-            False,
+        assert True, "Conversation node collect_new_patient_info (prompt) must define non-empty on_enter_text"
+
+        await self.session.generate_reply(
+            instructions="Welcome to our practice! To get you started, I'll need your full name and a good phone number to reach you at."
         )
 
     @function_tool
@@ -1033,46 +821,6 @@ class CollectNewPatientInfoAgent(BaseFlowAgent):
             )
         return OfferConfirmTimeAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class OfferConfirmTimeAgent(BaseFlowAgent):
     """Conversation node: offer_and_confirm_time"""
@@ -1080,7 +828,7 @@ class OfferConfirmTimeAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -1096,9 +844,10 @@ class OfferConfirmTimeAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip(
-            "Okay, thank you. What is the reason for your visit? For example, a routine cleaning, a check-up, or are you experiencing any pain? Based on that, I can find available times.",
-            False,
+        assert True, "Conversation node offer_and_confirm_time (prompt) must define non-empty on_enter_text"
+
+        await self.session.generate_reply(
+            instructions="Okay, thank you. What is the reason for your visit? For example, a routine cleaning, a check-up, or are you experiencing any pain? Based on that, I can find available times."
         )
 
     @function_tool
@@ -1124,46 +873,6 @@ class OfferConfirmTimeAgent(BaseFlowAgent):
             )
         return BookingConfirmationAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class BookingConfirmationAgent(BaseFlowAgent):
     """Conversation node: booking_confirmation"""
@@ -1171,7 +880,7 @@ class BookingConfirmationAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -1187,9 +896,10 @@ class BookingConfirmationAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip(
-            "Perfect. Your appointment is confirmed. You will receive a confirmation text shortly. Thank you for choosing Downtown Dental, and have a great day!",
-            False,
+        assert True, "Conversation node booking_confirmation (prompt) must define non-empty on_enter_text"
+
+        await self.session.generate_reply(
+            instructions="Perfect. Your appointment is confirmed. You will receive a confirmation text shortly. Thank you for choosing Downtown Dental, and have a great day!"
         )
 
     @function_tool
@@ -1217,49 +927,8 @@ class BookingConfirmationAgent(BaseFlowAgent):
         return None
 
     async def _handle_terminal(self):
-        """Handle terminal node - run post-call analysis and end call"""
-        await self._run_post_call_analysis()
+        """Handle terminal node - end call"""
         await self.end_call_if_needed()
-
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
 
 
 class VerifyPatientManageAgent(BaseFlowAgent):
@@ -1268,7 +937,7 @@ class VerifyPatientManageAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -1284,9 +953,10 @@ class VerifyPatientManageAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip(
-            "I can certainly help with that. To find your appointment, could you please tell me your full name and date of birth?",
-            False,
+        assert True, "Conversation node verify_existing_patient_manage (prompt) must define non-empty on_enter_text"
+
+        await self.session.generate_reply(
+            instructions="I can certainly help with that. To find your appointment, could you please tell me your full name and date of birth?"
         )
 
     @function_tool
@@ -1335,46 +1005,6 @@ class VerifyPatientManageAgent(BaseFlowAgent):
             )
         return ConfirmCancellationAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class ConfirmCancellationAgent(BaseFlowAgent):
     """Conversation node: confirm_cancellation"""
@@ -1382,7 +1012,7 @@ class ConfirmCancellationAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -1398,9 +1028,10 @@ class ConfirmCancellationAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip(
-            "Alright, I have successfully canceled your appointment. Is there anything else I can help with today?",
-            False,
+        assert True, "Conversation node confirm_cancellation (prompt) must define non-empty on_enter_text"
+
+        await self.session.generate_reply(
+            instructions="Alright, I have successfully canceled your appointment. Is there anything else I can help with today?"
         )
 
     @function_tool
@@ -1426,46 +1057,6 @@ class ConfirmCancellationAgent(BaseFlowAgent):
             )
         return GoodbyeAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class AnswerFaqAgent(BaseFlowAgent):
     """Conversation node: answer_faq"""
@@ -1473,7 +1064,7 @@ class AnswerFaqAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -1489,9 +1080,12 @@ class AnswerFaqAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip(
-            "Our office is open Monday to Friday from 8 AM to 5 PM. We are located at 123 Main Street. Is there anything else I can assist you with?",
-            False,
+        assert (
+            True
+        ), "Conversation node answer_faq (prompt) must define non-empty on_enter_text"
+
+        await self.session.generate_reply(
+            instructions="Our office is open Monday to Friday from 8 AM to 5 PM. We are located at 123 Main Street. Is there anything else I can assist you with?"
         )
 
     @function_tool
@@ -1540,46 +1134,6 @@ class AnswerFaqAgent(BaseFlowAgent):
             )
         return GoodbyeAgent(job_context=self.job_context)
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
 
 class GoodbyeAgent(BaseFlowAgent):
     """Conversation node: goodbye"""
@@ -1587,7 +1141,7 @@ class GoodbyeAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -1603,7 +1157,13 @@ class GoodbyeAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip("Thank you for calling. Have a wonderful day!", False)
+        assert (
+            True
+        ), "Conversation node goodbye (prompt) must define non-empty on_enter_text"
+
+        await self.session.generate_reply(
+            instructions="Thank you for calling. Have a wonderful day!"
+        )
 
     @function_tool
     async def end_conversation(self) -> Optional[Agent]:
@@ -1630,135 +1190,8 @@ class GoodbyeAgent(BaseFlowAgent):
         return None
 
     async def _handle_terminal(self):
-        """Handle terminal node - run post-call analysis and end call"""
-        await self._run_post_call_analysis()
+        """Handle terminal node - end call"""
         await self.end_call_if_needed()
-
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
-
-
-class PrepareForTransferAgent(BaseFlowAgent):
-    """Conversation node: prepare_transfer"""
-
-    def __init__(self, job_context: JobContext) -> None:
-        super().__init__(
-            job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\nThe user is asking to speak to a person, has an emergency, is frustrated, or is asking about something complex like billing or insurance.",
-        )
-
-    async def on_enter(self) -> None:
-        """Called when entering this node"""
-        flow_state: FlowState = self.session.userdata
-        flow_state.add_to_path("prepare_transfer")
-        if TEST_MODE:
-            prev_node = flow_state.path[-2] if len(flow_state.path) >= 2 else None
-            logger.info(
-                "[GEN-DEBUG] enter_node node_id=%s node_type=%s from=%r",
-                "prepare_transfer",
-                "conversation",
-                prev_node,
-            )
-
-    @function_tool
-    async def go_Execute_Call_Transfer(self) -> Optional[Agent]:
-        """Go to Execute Call Transfer"""
-        flow_state: FlowState = self.session.userdata
-        self._enable_preemptive_generation()
-
-        if FLOW_GENERATION_MODE == "declarative":
-            next_agent = self._route_to("prepare_transfer")
-            if next_agent:
-                return next_agent
-
-        if TEST_MODE:
-            logger.info(
-                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
-                "prepare_transfer",
-                "conversation",
-                "prepare_transfer",
-                "execute_transfer",
-                "edge_14",
-                "skip",
-            )
-        return ExecuteCallTransferAgent(job_context=self.job_context)
-
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
-
-        try:
-            flow_state: FlowState = self.session.userdata
-
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
-
-            - call_reason (selector): The primary reason for the call.
-
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
-
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
-
-            - patient_name (text): The full name of the patient if mentioned.
-
-            """
-
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
-
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
 
 
 class ExecuteCallTransferAgent(BaseFlowAgent):
@@ -1767,7 +1200,7 @@ class ExecuteCallTransferAgent(BaseFlowAgent):
     def __init__(self, job_context: JobContext) -> None:
         super().__init__(
             job_context=job_context,
-            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.\n\n",
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
         )
 
     async def on_enter(self) -> None:
@@ -1790,56 +1223,120 @@ class ExecuteCallTransferAgent(BaseFlowAgent):
             return None
 
     async def _execute_function_task(self):
-        """Execute the function task for this node"""
+        """Generic HTTP function execution with optional Retell-like behavior controls"""
         flow_state: FlowState = self.session.userdata
 
+        # Runtime validation: function node required fields
+        assert (
+            "https://httpbin.org/delay/2" != ""
+        ), "Function node execute_transfer missing required field: url"
+        assert "GET" in [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH",
+        ], "Function node execute_transfer has invalid method: GET"
+
         try:
-            task = TransferCallTask(self.session, self.job_context)
-            result = await task.run(
-                phone_number=flow_state.get_slot("transfer_number", ""),
-                timeout_ms=15000,
-                retries=0,
+            # Optional speech during execution
+
+            url = "https://httpbin.org/delay/2"
+            method = "GET"
+            headers = {}
+
+            # Interpolate body template with slots if provided (safe recursive formatting)
+
+            body = None
+
+            # Helper to execute HTTP call with retries
+            async def _run_http_call():
+                max_attempts_local = 0 + 1
+                _result = None
+                for attempt in range(max_attempts_local):
+                    try:
+                        async with aiohttp.ClientSession(
+                            timeout=aiohttp.ClientTimeout(total=15000 / 1000)
+                        ) as session:
+                            method_fn = getattr(session, method.lower())
+                            if body:
+                                headers.setdefault("Content-Type", "application/json")
+                                async with method_fn(
+                                    url, json=body, headers=headers
+                                ) as response:
+                                    response_data = (
+                                        await response.json()
+                                        if response.content_type == "application/json"
+                                        else await response.text()
+                                    )
+                            else:
+                                async with method_fn(url, headers=headers) as response:
+                                    response_data = (
+                                        await response.json()
+                                        if response.content_type == "application/json"
+                                        else await response.text()
+                                    )
+                            _result = {
+                                "ok": response.status < 400,
+                                "status": response.status,
+                                "url": url,
+                                "response": response_data,
+                            }
+                            break
+                    except Exception as e:
+                        logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
+                        if attempt < max_attempts_local - 1:
+                            await asyncio.sleep(1)
+                        else:
+                            _result = {"ok": False, "error": str(e)}
+                return _result
+
+            # Prepare speech configuration (avoid scheduling generate_reply as a task)
+            _do_speak = False
+            _speak_mode = None
+            _speak_text = None
+            _speak_instructions = None
+
+            _do_speak = True
+            _speak_mode = "static"
+            _speak_text = (
+                "Testing async function call. I will move on immediately after this."
             )
 
-            # Store result
-            flow_state.task_results["execute_transfer"] = result
-            logger.info(f"Task call_transfer completed: {result}")
+            # Orchestration based on wait_for_result
 
-            # Brief acknowledgment if successful and no immediate transition
-            # (We avoid double-speak if we will auto-advance below)
-            will_auto_advance = False
+            # wait_for_result = False: start HTTP in background, speak (if configured), then transition
+            async def _background_call():
+                _res = await _run_http_call()
+                flow_state.task_results["execute_transfer"] = _res
+                logger.info(f"Function task completed (background): {_res}")
 
-            will_auto_advance = False
-
-            if (
-                result.get("sent") or result.get("transferred") or result.get("ok")
-            ) and not will_auto_advance:
-                await self.session.say("All set. One moment while I wrap up.")
+            asyncio.create_task(_background_call())
+            if _do_speak and _speak_mode == "static":
+                await self.say_or_skip(_speak_text, False)
+            elif _do_speak and _speak_mode == "prompt":
+                await self.session.generate_reply(instructions=_speak_instructions)
+            result = None
 
         except Exception as e:
             logger.error(f"Function task failed: {e}")
             flow_state.task_results["execute_transfer"] = {"error": str(e)}
 
-        # Auto-advance after function execution
+        # Auto-advance after function execution (or immediately if not waiting)
 
         # Single edge - auto-advance
 
-        # Terminal edge -> EndAgent
         if TEST_MODE:
             logger.info(
                 "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
                 "execute_transfer",
                 "function",
                 "execute_transfer",
-                None,
+                "demo_wait_true",
                 "edge_17",
-                "skip",
+                "prompt",
             )
-        end_spec = FLOW_SPEC.get("__end__")
-        if end_spec and globals().get(end_spec.get("agent_class")):
-            return globals()[end_spec["agent_class"]](job_context=self.job_context)
-        await self._handle_terminal()
-        return None
+        return DemoWaitTrueAgent(job_context=self.job_context)
 
     @function_tool
     async def continue_next(self) -> Optional[Agent]:
@@ -1849,64 +1346,179 @@ class ExecuteCallTransferAgent(BaseFlowAgent):
             if next_agent:
                 return next_agent
 
-        # Terminal edge
         if TEST_MODE:
             logger.info(
                 "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
                 "execute_transfer",
                 "function",
                 "execute_transfer",
-                None,
+                "demo_wait_true",
                 "edge_17",
-                "skip",
+                "prompt",
             )
-        await self._handle_terminal()
-        return None
+        return DemoWaitTrueAgent(job_context=self.job_context)
 
-    async def _handle_terminal(self):
-        """Handle terminal node - run post-call analysis and end call"""
-        await self._run_post_call_analysis()
-        await self.end_call_if_needed()
 
-    async def _run_post_call_analysis(self):
-        """Run post-call analysis if configured"""
+class DemoWaitTrueAgent(BaseFlowAgent):
+    """Function node: demo_wait_true"""
+
+    def __init__(self, job_context: JobContext) -> None:
+        super().__init__(
+            job_context=job_context,
+            instructions="You are a friendly and professional dental receptionist assistant. Your goal is to handle common requests like booking appointments, managing existing ones, and answering basic questions. For any complex, urgent, or financial matters, your priority is to transfer the caller to a human receptionist.",
+        )
+
+    async def on_enter(self) -> None:
+        """Called when entering this node"""
+        flow_state: FlowState = self.session.userdata
+        flow_state.add_to_path("demo_wait_true")
+        if TEST_MODE:
+            prev_node = flow_state.path[-2] if len(flow_state.path) >= 2 else None
+            logger.info(
+                "[GEN-DEBUG] enter_node node_id=%s node_type=%s from=%r",
+                "demo_wait_true",
+                "function",
+                prev_node,
+            )
+
+        # Execute function task and handoff via session (LiveKit-aligned)
+        next_agent = await self._execute_function_task()
+        if next_agent:
+            self.session.update_agent(next_agent)
+            return None
+
+    async def _execute_function_task(self):
+        """Generic HTTP function execution with optional Retell-like behavior controls"""
+        flow_state: FlowState = self.session.userdata
+
+        # Runtime validation: function node required fields
+        assert (
+            "https://httpbin.org/delay/2" != ""
+        ), "Function node demo_wait_true missing required field: url"
+        assert "GET" in [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH",
+        ], "Function node demo_wait_true has invalid method: GET"
 
         try:
-            flow_state: FlowState = self.session.userdata
+            # Optional speech during execution
 
-            # Build analysis prompt
-            analysis_prompt = f"""
-            Analyze this conversation session and provide structured analysis.
-            
-            Session Path: {" -> ".join(flow_state.path)}
-            Collected Data: {json.dumps(flow_state.slots, indent=2)}
-            Task Results: {json.dumps(flow_state.task_results, indent=2)}
-            
-            Return strict JSON with these fields:
+            url = "https://httpbin.org/delay/2"
+            method = "GET"
+            headers = {}
 
-            - call_reason (selector): The primary reason for the call.
+            # Interpolate body template with slots if provided (safe recursive formatting)
 
-            - booking_completed (boolean): Whether an appointment was successfully booked or rescheduled.
+            body = None
 
-            - transferred_to_human (boolean): Whether the call was transferred to a human receptionist.
+            # Helper to execute HTTP call with retries
+            async def _run_http_call():
+                max_attempts_local = 0 + 1
+                _result = None
+                for attempt in range(max_attempts_local):
+                    try:
+                        async with aiohttp.ClientSession(
+                            timeout=aiohttp.ClientTimeout(total=15000 / 1000)
+                        ) as session:
+                            method_fn = getattr(session, method.lower())
+                            if body:
+                                headers.setdefault("Content-Type", "application/json")
+                                async with method_fn(
+                                    url, json=body, headers=headers
+                                ) as response:
+                                    response_data = (
+                                        await response.json()
+                                        if response.content_type == "application/json"
+                                        else await response.text()
+                                    )
+                            else:
+                                async with method_fn(url, headers=headers) as response:
+                                    response_data = (
+                                        await response.json()
+                                        if response.content_type == "application/json"
+                                        else await response.text()
+                                    )
+                            _result = {
+                                "ok": response.status < 400,
+                                "status": response.status,
+                                "url": url,
+                                "response": response_data,
+                            }
+                            break
+                    except Exception as e:
+                        logger.error(f"HTTP request attempt {attempt + 1} failed: {e}")
+                        if attempt < max_attempts_local - 1:
+                            await asyncio.sleep(1)
+                        else:
+                            _result = {"ok": False, "error": str(e)}
+                return _result
 
-            - patient_name (text): The full name of the patient if mentioned.
+            # Prepare speech configuration (avoid scheduling generate_reply as a task)
+            _do_speak = False
+            _speak_mode = None
+            _speak_text = None
+            _speak_instructions = None
 
-            """
+            _do_speak = True
+            _speak_mode = "prompt"
+            _speak_instructions = (
+                "Testing wait=true. I will wait for the result before moving on."
+            )
 
-            # Call OpenAI for analysis
-            analysis_llm = openai.LLM(model="gpt-4o-mini")
-            response = await analysis_llm.agenerate(analysis_prompt)
+            # Orchestration based on wait_for_result
 
-            try:
-                analysis_result = json.loads(response.choices[0].message.content)
-                logger.info(f"Post-call analysis: {analysis_result}")
-                flow_state.task_results["_post_call_analysis"] = analysis_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse analysis JSON: {e}")
+            # wait_for_result = True: run HTTP concurrently, speak (if configured), then await result
+            _http_task = asyncio.create_task(_run_http_call())
+            if _do_speak and _speak_mode == "static":
+                await self.say_or_skip(_speak_text, False)
+            elif _do_speak and _speak_mode == "prompt":
+                await self.session.generate_reply(instructions=_speak_instructions)
+            result = await _http_task
+            flow_state.task_results["demo_wait_true"] = result
+            logger.info(f"Function task completed: {result}")
 
         except Exception as e:
-            logger.error(f"Post-call analysis failed: {e}")
+            logger.error(f"Function task failed: {e}")
+            flow_state.task_results["demo_wait_true"] = {"error": str(e)}
+
+        # Auto-advance after function execution (or immediately if not waiting)
+
+        # Single edge - auto-advance
+
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "demo_wait_true",
+                "function",
+                "demo_wait_true",
+                "goodbye",
+                "edge_18",
+                "prompt",
+            )
+        return GoodbyeAgent(job_context=self.job_context)
+
+    @function_tool
+    async def continue_next(self) -> Optional[Agent]:
+        """Continue to next node after user confirmation or function completion"""
+        if FLOW_GENERATION_MODE == "declarative":
+            next_agent = self._route_to("demo_wait_true")
+            if next_agent:
+                return next_agent
+
+        if TEST_MODE:
+            logger.info(
+                "[GEN-DEBUG] transition node_id=%s node_type=%s from=%s to=%s edge_id=%s edge_type=%s",
+                "demo_wait_true",
+                "function",
+                "demo_wait_true",
+                "goodbye",
+                "edge_18",
+                "prompt",
+            )
+        return GoodbyeAgent(job_context=self.job_context)
 
 
 def prewarm(proc):
@@ -1939,15 +1551,12 @@ async def entrypoint(ctx: JobContext) -> None:
         voice_id="21m00Tcm4TlvDq8ikWAM",
     )
 
-    session = AgentSession(
-        llm=_llm,
-        stt=_stt,
-        tts=_tts,
-        vad=ctx.proc.userdata["vad"],
-        preemptive_generation=(
+    session = AgentSession(llm=_llm, stt=_stt, tts=_tts, vad=ctx.proc.userdata["vad"])
+
+    if hasattr(session, "preemptive_generation"):
+        session.preemptive_generation = (
             os.getenv("PREEMPTIVE_FIRST_TURN", "false").lower() == "true"
-        ),
-    )
+        )
 
     # Initialize FlowState
     session.userdata = FlowState()

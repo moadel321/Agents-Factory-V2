@@ -43,6 +43,7 @@ class CodeGenerator:
         # Add custom filters
         self.env.filters['classify'] = self._classify
         self.env.filters['toolify'] = self._toolify
+        self.env.filters['ascii_slug'] = self._ascii_slug
         self.env.filters['jsonify'] = json.dumps
         
     @staticmethod
@@ -54,10 +55,21 @@ class CodeGenerator:
     
     @staticmethod
     def _toolify(name: str) -> str:
-        """Convert a name to a Python function name"""
-        safe = "".join(ch if ch.isalnum() else "_" for ch in name)
-        parts = [p for p in safe.split("_") if p]
-        return "go_" + "_".join(parts)
+        """Convert a display name to an ASCII-safe tool name"""
+        slug = CodeGenerator._ascii_slug(name)
+        return "go_" + (slug if slug else "tool")
+
+    @staticmethod
+    def _ascii_slug(name: str) -> str:
+        import unicodedata
+        normalized = unicodedata.normalize('NFKD', name or '')
+        ascii_str = normalized.encode('ascii', 'ignore').decode('ascii')
+        safe = ''.join(ch if (ch.isalnum() or ch in '-_') else '_' for ch in ascii_str)
+        parts = [p for p in safe.split('_') if p]
+        slug = '_'.join(parts)
+        if slug and slug[0].isdigit():
+            slug = f"n_{slug}"
+        return slug
     
     def generate_agent(
         self,
@@ -188,11 +200,10 @@ class CodeGenerator:
                     "speech_engine": getattr(ts, "speech_engine", None),
                 })(flow.tts_settings),
                 "nodes": ir.nodes,
-                "start_class_name": ir.start_class_name,
-                "post_call_analysis": self._build_post_call_analysis_context(flow)
+                "start_class_name": ir.start_class_name
             }
         }
-        
+
         # Add call settings if available
         if flow.call_settings:
             context["flow"]["call_settings"] = {
@@ -200,34 +211,8 @@ class CodeGenerator:
                 "end_call_on_silence_ms": flow.call_settings.end_call_on_silence_ms,
                 "max_call_duration_ms": flow.call_settings.max_call_duration_ms
             }
-        
+
         return context
-    
-    def _build_post_call_analysis_context(self, flow: ConversationFlowOut) -> Optional[Dict[str, Any]]:
-        """
-        Build post-call analysis context for template.
-        
-        Args:
-            flow: Flow definition
-            
-        Returns:
-            Post-call analysis context or None if not configured
-        """
-        if not flow.post_call_analysis:
-            return None
-        
-        return {
-            "model": flow.post_call_analysis.model,
-            "analysis_items": [
-                {
-                    "name": item.name,
-                    "description": item.description,
-                    "type": item.type,
-                    "selector_options": item.selector_options
-                }
-                for item in flow.post_call_analysis.analysis_items
-            ]
-        }
     
     def generate_multiple_agents(
         self, 

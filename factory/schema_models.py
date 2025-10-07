@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 STT_PROVIDERS = Literal["google", "aws", "azure", "deepgram"]
 TTS_PROVIDERS = Literal["aws", "elevenlabs"]
 LLM_PROVIDERS = Literal["openai", "azure", "google"]
-POST_CALL_ANALYSIS_TYPES = Literal["boolean", "text", "number", "selector"]
 
 
 class CallSettings(BaseModel):
@@ -62,18 +61,6 @@ class LLMSettings(BaseModel):
     model: str
     temperature: float
     max_tokens: Optional[int]
-
-
-class PostCallAnalysisItem(BaseModel):
-    name: str
-    description: str
-    type: POST_CALL_ANALYSIS_TYPES
-    selector_options: Optional[list[str]]
-
-
-class PostCallAnalysisSettings(BaseModel):
-    model: Literal["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"]
-    analysis_items: list[PostCallAnalysisItem]
 
 
 class DisplayPosition(BaseModel):
@@ -135,10 +122,21 @@ class EdgePrompt(BaseModel):
 
 
 class FunctionSettings(BaseModel):
-    function_type: Literal["sms", "call_transfer", "rest_webhook"]
-    parameters_schema: Optional[dict]
+    """Generic HTTP function node - makes API calls"""
+    url: str
+    method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"] = "POST"
+    headers: Optional[dict[str, str]] = None
+    body: Optional[dict] = None
     timeout_ms: Optional[int] = 10000
     retries: Optional[int] = 0
+    wait_for_result: Optional[bool] = True
+    class SpeakDuringExecution(BaseModel):
+        mode: Literal["prompt", "static"] = "static"
+        # If mode == "static", text should be provided
+        text: Optional[str] = None
+        # If mode == "prompt", instructions should be provided
+        instructions: Optional[str] = None
+    speak_during_execution: Optional[SpeakDuringExecution] = None
 
 
 class NodeOut(BaseModel):
@@ -151,8 +149,7 @@ class NodeOut(BaseModel):
     global_settings: Optional[GlobalSettings]
     position: DisplayPosition
     type: Literal["conversation", "function"]
-    settings: ConversationSettings
-    function: Optional[FunctionSettings] = None
+    settings: Union[ConversationSettings, FunctionSettings]
 
 
 class EdgeOut(BaseModel):
@@ -178,7 +175,6 @@ class ConversationFlowOut(BaseModel):
     tts_settings: TTSSettings
     llm_settings: LLMSettings
     call_settings: CallSettings
-    post_call_analysis: Optional[PostCallAnalysisSettings]
     begin_position: DisplayPosition
     start_node_id: Optional[str]
 

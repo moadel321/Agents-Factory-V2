@@ -2,24 +2,10 @@ import ast
 from typing import Dict, Set, List
 from pydantic import ValidationError
 
-from .schema_models import ConversationFlowOut, EdgeOut
-
-try:
-    import jsonschema
-    HAS_JSONSCHEMA = True
-except ImportError:
-    HAS_JSONSCHEMA = False
+from .schema_models import ConversationFlowOut
 
 
 class FlowValidationError(Exception):
-    pass
-
-
-class FunctionNodeValidationError(FlowValidationError):
-    pass
-
-
-class SchemaValidationError(FlowValidationError):
     pass
 
 
@@ -42,6 +28,14 @@ def _toposort(nodes: Set[str], edges: Dict[str, Set[str]]) -> bool:
 
 
 def validate_flow(flow: ConversationFlowOut, strict: bool = True) -> None:
+    """
+    Minimal structural validation of flow definition.
+    Invariants like settings presence are pushed to template assertions.
+
+    Args:
+        flow: Flow definition to validate
+        strict: Unused, kept for API compatibility
+    """
     try:
         flow.model_dump()
     except ValidationError as e:
@@ -59,8 +53,7 @@ def validate_flow(flow: ConversationFlowOut, strict: bool = True) -> None:
     if flow.start_node_id not in node_ids:
         raise FlowValidationError("start_node_id not found in nodes")
 
-    # Validate function nodes and self-loop restrictions
-    _validate_function_nodes(flow, strict)
+    # Validate self-loop restrictions
     _validate_self_loop_restrictions(flow)
 
     # Build adjacency for cycle detection (excluding allowed self-loops)
@@ -102,36 +95,6 @@ def _validate_self_loop_restrictions(flow: ConversationFlowOut) -> None:
                 raise FlowValidationError(f"Function node {edge.from_node_id} cannot have self-loop (edge {edge.id})")
             elif node_type != "conversation":
                 raise FlowValidationError(f"Only conversation nodes can have self-loops, found on {node_type} node {edge.from_node_id} (edge {edge.id})")
-
-
-def _validate_function_nodes(flow: ConversationFlowOut, strict: bool) -> None:
-    """Validate function nodes have proper configuration"""
-    for node in flow.nodes:
-        if node.type == "function":
-            if not node.function:
-                raise FunctionNodeValidationError(f"Function node {node.id} missing function configuration")
-            
-            # Validate function type
-            valid_types = ["sms", "call_transfer", "rest_webhook"]
-            if node.function.function_type not in valid_types:
-                raise FunctionNodeValidationError(f"Function node {node.id} has invalid function_type: {node.function.function_type}")
-            
-            # Basic schema validation if available
-            if node.function.parameters_schema and HAS_JSONSCHEMA and strict:
-                try:
-                    # Basic schema structure validation
-                    if not isinstance(node.function.parameters_schema, dict):
-                        raise SchemaValidationError(f"Function node {node.id} parameters_schema must be a dict")
-                    
-                    # Check for required fields based on function type
-                    if node.function.function_type == "sms":
-                        schema_props = node.function.parameters_schema.get("properties", {})
-                        if "to" not in schema_props or "body" not in schema_props:
-                            raise SchemaValidationError(f"SMS function node {node.id} schema missing required 'to' or 'body' properties")
-                            
-                except Exception as e:
-                    if strict:
-                        raise SchemaValidationError(f"Function node {node.id} schema validation failed: {e}")
 
 
 def validate_generated_code(code: str) -> List[str]:

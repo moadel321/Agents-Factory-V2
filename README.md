@@ -113,8 +113,8 @@ This approach combines the declarative ease of a visual flow builder with the pe
 
 ## Terminal behavior and optional follow‑ups
 
-- Terminal transitions (`to_node_id: null`) are handled by `_handle_terminal()`, which runs post‑call analysis (if configured) and ends the room.
-- You may add an optional “post‑completion prompt” node (e.g., ask “Anything else I can help with?”) with two edges: one to FAQ/help and one terminal edge.
+- Terminal transitions (`to_node_id: null`) are handled by `_handle_terminal()`, which ends the room.
+- You may add an optional "post‑completion prompt" node (e.g., ask "Anything else I can help with?") with two edges: one to FAQ/help and one terminal edge.
 
 ---
 
@@ -284,7 +284,6 @@ This section details the structure of the input JSON file.
 | `tts_settings` | object | Configuration for Text-to-Speech. See below. |
 | `llm_settings` | object | Configuration for the Language Model. See below. |
 | `call_settings` | object | Configuration for call behavior. See below. |
-| `post_call_analysis`| object | (Optional) Configuration for post-call analysis. See below. |
 | `start_node_id` | string | The `id` of the first node to execute when the call begins. |
 | `nodes` | array | An array of Node objects. |
 | `edges` | array | An array of Edge objects. |
@@ -348,10 +347,20 @@ This section details the structure of the input JSON file.
 
 | Key | Type | Description |
 |---|---|---|
-| `function_type`| string | One of `sms`, `call_transfer`, `rest_webhook`. |
-| `parameters_schema` | object | (Optional) A JSON schema to validate and extract parameters for the task. |
+| `url` | string | HTTP endpoint to call. |
+| `method` | string | One of `GET`, `POST`, `PUT`, `DELETE`, `PATCH`. |
+| `headers` | object | Optional HTTP headers map. |
+| `body` | object/null | Optional JSON body (supports `{slot}` interpolation). |
 | `timeout_ms` | integer | (Optional) Task execution timeout. |
 | `retries` | integer | (Optional) Number of retries on failure. |
+
+Optional execution behavior flags (Retell-like):
+
+- **`wait_for_result` (boolean, default: true)**: When true, the function node waits for the HTTP task to finish before transitioning. When false, the task runs in the background and the node transitions immediately (or after speaking if configured).
+- **`speak_during_execution` (object, optional)**: Configure speech while the function runs.
+  - `mode`: `"prompt"|"static"` (default `"static"`)
+  - `text`: string (required when `mode="static"`)
+  - `instructions`: string (required when `mode="prompt"`)
 
 ### Edge Object
 
@@ -408,8 +417,16 @@ Generates a single agent file from a JSON input.
 
 ```bash
 python -m factory.cli generate \
-  --input examples/flows/pizza.json \
+  --input flows/pizza_flow.json \
   --output generated/agent_pizza.py
+
+# Additional options:
+# --output-dir, -d       Output directory (default: generated)
+# --template-dir, -t     Custom template directory
+# --validate/--no-validate   Validate before generation (default: true)
+# --strict/--no-strict   Strict validation (default: true)
+# --stdout               Print to stdout instead of file
+# --format text|json     Output format for stdout (default: text)
 ```
 
 ### `batch`
@@ -417,15 +434,25 @@ Generates multiple agents from a directory of JSON files.
 
 ```bash
 python -m factory.cli batch \
-  --input-dir examples/flows \
+  --input-dir flows \
   --output-dir generated
+
+# Additional options:
+# --pattern, -p          File pattern to match (default: *.json)
+# --validate/--no-validate   Validate before generation (default: true)
+# --strict/--no-strict   Strict validation (default: true)
+# --template-dir, -t     Custom template directory
+# --continue-on-error    Continue if a file fails
 ```
 
 ### `validate`
 Validates a flow definition file without generating code. Validation checks for DAG structure (preventing multi-node cycles) while allowing self-loops on conversation nodes for FAQ patterns.
 
 ```bash
-python -m factory.cli validate --input examples/flows/pizza.json
+python -m factory.cli validate --input flows/pizza_flow.json
+
+# Additional options:
+# --strict/--no-strict   Strict validation (default: true)
 ```
 
 ---
@@ -456,8 +483,8 @@ The `agent.jinja2` template is organized into the following sections:
 4.  **Task Implementations**: The Python classes for the built-in tasks (`SendSMSTask`, `TransferCallTask`, `RestWebhookTask`) are included.
 5.  **Declarative FLOW_SPEC**: Maps each node to its class/type and edges. The router auto‑advances only on single‑edge nodes.
 6.  **Generated Agent Classes**: For each node, a Python class with:
-   - Conversation nodes with captures: one `collect(...)` tool to record values and advance.
-   - Conversation nodes without captures: only edge tools.
+   - Conversation nodes: edge tools for navigation (capture fields are currently inert).
+   - Function nodes: a generic HTTP execution method with optional wait/speak behavior.
    - Multi‑edge nodes: no router auto‑selection; require an explicit edge tool call.
 7.  **Entrypoint**: Standard `prewarm` and `entrypoint` for a LiveKit worker.
 
@@ -476,7 +503,6 @@ The `build_ir` function (`factory/ir.py`) transforms your JSON flow into a `flow
         -   `edge.tool_name`: Becomes the name of the `@function_tool` (e.g., `go_proceed_to_collect_info`).
         -   `edge.description`: Used as the docstring for the tool, which is critical for the LLM to understand its purpose.
         -   `edge.next_class_name`: Determines the return value of the tool, enabling the handoff to the next agent (e.g., `return CollectOrderDetailsAgent(...)`). If `null`, it is treated as a terminal edge; in declarative mode, the router falls back to `EndAgent`.
--   **`flow.post_call_analysis`**: If present, this object is used to generate the `_run_post_call_analysis` method, dynamically creating the prompt from the `analysis_items`.
 
 The mapping is direct and predictable. The structure of your JSON `nodes` and `edges` arrays directly corresponds to the generated Python classes and the `@function_tool` methods that connect them.
 
@@ -494,11 +520,13 @@ This directory contains the core logic for parsing, validating, and transforming
 -   `__init__.py`: Makes the `factory` directory a Python package.
 -   `cli.py`: Defines the command-line interface (`generate`, `batch`, `validate`) using `click`.
 -   `core.py`: Contains shared concepts; the generated file defines its own `FlowState` and `BaseFlowAgent`.
+ -   (removed) `core.py`: Previously contained duplicate `FlowState`/`BaseFlowAgent`; not used by generator.
 -   `generator.py`: Holds the `CodeGenerator` class that orchestrates the Jinja2 template rendering.
 -   `ir.py`: Converts the validated JSON schema into an Intermediate Representation for the template.
 -   `prompts.py`: Helper functions for building dynamic LLM prompts for routing and analysis.
 -   `schema_models.py`: Defines the Pydantic models that represent the authoritative schema for a flow JSON.
--   `tasks.py`: Contains the concrete `AgentTask` implementations for built-in functions (SMS, Call Transfer, etc.).
+ -   (removed) `tasks.py`: No longer present; function nodes use generic HTTP execution generated from the template.
+ -   `prompts.py`: Minimal placeholder (no current usage).
 -   `validator.py`: Provides functions to validate the integrity, structure, and logic of a flow JSON.
 -   `templates/agent.jinja2`: The Jinja2 template that defines the structure of the generated Python agent file.
     - Provider-aware selection of STT (Azure/AWS/Deepgram), LLM (OpenAI/Azure/Gemini), and TTS (ElevenLabs/AWS Polly) based on `stt_settings`, `llm_settings`, and `tts_settings`.
@@ -518,13 +546,9 @@ This directory contains the core logic for parsing, validating, and transforming
   original: ElevenLabs `model: str` (free-form); AWS Polly supported.  
   current: ElevenLabs `model` is a strict Literal set (`eleven_multilingual_v2`, `eleven_flash_v2_5`, etc.); AWS Polly still supported. `voice_settings` fields are optional (`style`/`speed`/`use_speaker_boost`) instead of `Union[..., None]`.
 
-- **LLM settings**  
-  original: `model` Literal constrained to `['gpt-4.1','azure-gpt-4.1']`.  
+- **LLM settings**
+  original: `model` Literal constrained to `['gpt-4.1','azure-gpt-4.1']`.
   current: `model: str` (unconstrained to support OpenAI, Azure OpenAI, Gemini, etc.); `provider` unchanged (`openai|azure|google`).
-
-- **Post‑call analysis**  
-  original: `model` limited to `gpt-4.1`, `gpt-4.1-mini`.  
-  current: expanded to `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o`, `gpt-4o-mini`; `analysis_items` unchanged semantically.
 
 - **Conversation settings**  
   original: no `llm_overrides`, no structured captures.  
