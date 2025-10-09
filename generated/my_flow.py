@@ -111,21 +111,21 @@ class BaseFlowAgent(Agent):
 
         # Initialize plugins based on flow settings
 
-        if azure is None:
-            logger.warning("Azure STT plugin not available, falling back to Deepgram")
+        if aws is None:
+            logger.warning("AWS STT plugin not available, falling back to Deepgram")
             stt = deepgram.STT(model="nova-2")
         else:
-            stt = azure.STT(language="ar-SA")
+            stt = aws.STT(language="ar-SA")
 
         llm = openai.LLM(
-            model="gpt-4o-mini",
-            temperature=0.5,
+            model="gpt-4.1",
+            temperature=0.0,
         )
 
-        tts = elevenlabs.TTS(
-            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
-            model="eleven_multilingual_v2",
-            voice_id="4wf10lgibMnboGJGCLrP",
+        tts = aws.TTS(
+            voice="Hala",
+            speech_engine="neural",
+            language=os.getenv("AWS_TTS_LANGUAGE") or "en-US",
         )
 
         super().__init__(
@@ -1310,24 +1310,30 @@ async def entrypoint(ctx: JobContext) -> None:
     # LLM selection
 
     _llm = openai.LLM(
-        model="gpt-4o-mini",
-        temperature=0.5,
+        model="gpt-4.1",
+        temperature=0.0,
     )
 
     # STT selection
 
-    if azure is None:
+    if aws is None:
         _stt = deepgram.STT(model="nova-2")
     else:
-        _stt = azure.STT(language="ar-SA")
+        _stt = aws.STT(language="ar-SA")
 
     # TTS selection
 
-    _tts = elevenlabs.TTS(
-        api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
-        model="eleven_multilingual_v2",
-        voice_id="4wf10lgibMnboGJGCLrP",
-    )
+    if aws is None:
+        _tts = elevenlabs.TTS(
+            api_key=(os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")),
+            model="None",
+        )
+    else:
+        _tts = aws.TTS(
+            voice="Hala",
+            speech_engine="neural",
+            language=os.getenv("AWS_TTS_LANGUAGE") or "en-US",
+        )
 
     session = AgentSession(llm=_llm, stt=_stt, tts=_tts, vad=ctx.proc.userdata["vad"])
 

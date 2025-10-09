@@ -2,6 +2,11 @@ from datetime import datetime
 from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
+try:
+    # Pydantic v2 style config
+    from pydantic import ConfigDict
+except Exception:  # pragma: no cover
+    ConfigDict = dict  # type: ignore
 
 
 # --- Providers ---
@@ -21,6 +26,7 @@ class STTSettings(BaseModel):
     language: Literal["en-US", "ar-SA"]
     # Optional explicit model for providers that support multiple models (e.g., deepgram "nova-3")
     model: Optional[str] = None
+    model_config = ConfigDict(extra="ignore")
 
 
 class AWSTTSSettings(BaseModel):
@@ -47,6 +53,7 @@ class ElevenLabsTTSSettings(BaseModel):
     ]
     voice_id: str
     voice_settings: VoiceSettings
+    model_config = ConfigDict(extra="ignore")
 
 
 TTSSettings = Annotated[
@@ -61,6 +68,7 @@ class LLMSettings(BaseModel):
     model: str
     temperature: float
     max_tokens: Optional[int]
+    model_config = ConfigDict(extra="ignore")
 
 
 class DisplayPosition(BaseModel):
@@ -68,27 +76,14 @@ class DisplayPosition(BaseModel):
     y: float
 
 
-class LLMSimpleOverrides(BaseModel):
-    provider: Optional[LLM_PROVIDERS]
-    model: Optional[str]
-    temperature: Optional[float]
-    max_tokens: Optional[int]
-
-
 class GlobalSettings(BaseModel):
-    class FinetuneExample(BaseModel):
-        class ConversationExample(BaseModel):
-            speaker: Literal["user", "agent"]
-            text: str
-
-        type: Literal["jump", "not_jump"]
-        conversations: list[ConversationExample]
-
     prompt: str
-    finetune_examples: list[FinetuneExample]
+    model_config = ConfigDict(extra="ignore")
 
 
 class ConversationSettings(BaseModel):
+    # Discriminator for settings union
+    type: Literal["conversation"] = "conversation"
     class CaptureField(BaseModel):
         name: str
         # primitive types + enum support; lists via multi=true of a primitive
@@ -98,22 +93,13 @@ class ConversationSettings(BaseModel):
         required: Optional[bool] = False
         description: Optional[str] = None
 
-    class FinetuneExample(BaseModel):
-        class ConversationExample(BaseModel):
-            speaker: Literal["user", "agent"]
-            text: str
-
-        type: Literal["conversation"]
-        conversations: list[ConversationExample]
-
     on_enter_text: str
     on_enter_type: Literal["prompt", "static"]
     allow_interruptions: bool
     skip_response: bool
-    finetune_examples: list[FinetuneExample]
-    llm_overrides: Optional[LLMSimpleOverrides]
     # Optional: declare fields to capture at this node (node-level persistence)
     capture: Optional[list[CaptureField]] = None
+    model_config = ConfigDict(extra="ignore")
 
 
 class EdgePrompt(BaseModel):
@@ -123,6 +109,8 @@ class EdgePrompt(BaseModel):
 
 class FunctionSettings(BaseModel):
     """Generic HTTP function node - makes API calls"""
+    # Discriminator for settings union
+    type: Literal["function"] = "function"
     url: str
     method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"] = "POST"
     headers: Optional[dict[str, str]] = None
@@ -137,6 +125,7 @@ class FunctionSettings(BaseModel):
         # If mode == "prompt", instructions should be provided
         instructions: Optional[str] = None
     speak_during_execution: Optional[SpeakDuringExecution] = None
+    model_config = ConfigDict(extra="ignore")
 
 
 class NodeOut(BaseModel):
@@ -149,7 +138,8 @@ class NodeOut(BaseModel):
     global_settings: Optional[GlobalSettings]
     position: DisplayPosition
     type: Literal["conversation", "function"]
-    settings: Union[ConversationSettings, FunctionSettings]
+    settings: Annotated[Union[ConversationSettings, FunctionSettings], Field(discriminator="type")]
+    model_config = ConfigDict(extra="ignore")
 
 
 class EdgeOut(BaseModel):
@@ -180,5 +170,7 @@ class ConversationFlowOut(BaseModel):
 
     nodes: list[NodeOut]
     edges: list[EdgeOut]
+    # Ignore unknown top-level fields (e.g., post_call_analysis)
+    model_config = ConfigDict(extra="ignore")
 
 

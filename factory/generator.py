@@ -348,7 +348,7 @@ if __name__ == "__main__":
         ),
         begin_position=DisplayPosition(x=0, y=0),
         start_node_id="greeting",
-        nodes=[
+                nodes=[
             NodeOut(
                 id="greeting",
                 created=datetime.now(),
@@ -362,8 +362,7 @@ if __name__ == "__main__":
                     on_enter_text="Hi! Welcome to Pizza Palace. What would you like to order?",
                     on_enter_type="prompt",
                     allow_interruptions=True,
-                    skip_response=False,
-                    finetune_examples=[]
+                    skip_response=False
                 )
             ),
             NodeOut(
@@ -379,8 +378,7 @@ if __name__ == "__main__":
                     on_enter_text="Great! Let me summarize your order.",
                     on_enter_type="prompt",
                     allow_interruptions=True,
-                    skip_response=False,
-                    finetune_examples=[]
+                    skip_response=False
                 )
             )
         ],

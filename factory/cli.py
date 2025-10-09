@@ -343,8 +343,7 @@ def create_example(output_file):
                         on_enter_text="Hi! Welcome to Pizza Palace. What would you like to order today?",
                         on_enter_type="prompt",
                         allow_interruptions=True,
-                        skip_response=False,
-                        finetune_examples=[]
+                        skip_response=False
                     )
                 ),
                 
@@ -361,8 +360,7 @@ def create_example(output_file):
                         on_enter_text="Great! Please tell me what pizza you'd like and your phone number.",
                         on_enter_type="prompt",
                         allow_interruptions=True,
-                        skip_response=False,
-                        finetune_examples=[]
+                        skip_response=False
                     )
                 ),
                 
@@ -401,8 +399,7 @@ def create_example(output_file):
                         on_enter_text="Perfect! Your order has been placed and you should receive a confirmation SMS shortly. Your pizza will be ready in about 20 minutes. Thank you for choosing Pizza Palace!",
                         on_enter_type="prompt",
                         allow_interruptions=True,
-                        skip_response=False,
-                        finetune_examples=[]
+                        skip_response=False
                     )
                 )
             ],
