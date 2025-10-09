@@ -41,7 +41,25 @@ def _ascii_slug(name: str) -> str:
 
 def _toolify(name: str) -> str:
     slug = _ascii_slug(name)
-    return "go_" + (slug if slug else "tool")
+    # Ensure valid Python identifier by replacing hyphens with underscores
+    slug = (slug or "tool").replace('-', '_')
+    tool_name = "go_" + slug
+    return _cap_identifier(tool_name)
+
+
+def _cap_identifier(identifier: str, max_len: int = 64) -> str:
+    """Cap identifier length using slicing with a short hash suffix to avoid collisions.
+
+    Keeps it simple and deterministic. If the identifier is already short enough,
+    return as-is. Otherwise, slice and append _xxxx (4 hex chars).
+    """
+    if len(identifier) <= max_len:
+        return identifier
+    import hashlib
+    digest = hashlib.sha1(identifier.encode("utf-8")).hexdigest()[:4]
+    # leave room for underscore + 4 hex chars
+    head = identifier[: max_len - 5]
+    return f"{head}_{digest}"
 
 
 def build_ir(flow: ConversationFlowOut) -> IRFlow:
@@ -109,7 +127,9 @@ def build_ir(flow: ConversationFlowOut) -> IRFlow:
                 slug = _ascii_slug(base_label)
                 if not slug:
                     slug = _ascii_slug(f"{getattr(e, 'id', 'edge')}_{next_node.id}")
-                tool_name = "go_" + slug
+                # Replace hyphens to keep Python method name valid
+                slug = slug.replace('-', '_')
+                tool_name = _cap_identifier("go_" + slug)
                 description = (e.settings.prompt if e.settings else f"Go to {next_node.name}")
                 next_class_name = _classify(next_node.name or next_node.id)
             else:
