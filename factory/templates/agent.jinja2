@@ -119,9 +119,16 @@ class BaseFlowAgent(Agent):
             stt = deepgram.STT(model="nova-2")
         else:
             stt = aws.STT(language="{{ flow.stt.language }}")
+        {% elif flow.stt.provider == 'google' %}
+        if google is None:
+            logger.warning("Google STT plugin not available, falling back to Deepgram")
+            stt = deepgram.STT(model="nova-2")
+        else:
+            stt = google.STT(language="{{ flow.stt.language }}")
         {% elif flow.stt.provider == 'deepgram' %}
         stt = deepgram.STT(model="{{ flow.stt.model or 'nova-3' }}")
         {% else %}
+        logger.warning("Unsupported STT provider '{{ flow.stt.provider }}', defaulting to Deepgram")
         stt = deepgram.STT(model="nova-2")
         {% endif %}
 
@@ -159,7 +166,7 @@ class BaseFlowAgent(Agent):
         {% endif %}
 
         {% if flow.tts.provider == 'aws' %}
-        {% if aws is not None %}
+        {% if aws is not none %}
         tts = aws.TTS(
             voice="{{ flow.tts.voice_id or (os.getenv('AWS_TTS_VOICE') or 'Joanna') }}",
             speech_engine="{{ flow.tts.speech_engine or (os.getenv('AWS_TTS_ENGINE') or 'neural') }}",
@@ -738,9 +745,16 @@ async def entrypoint(ctx: JobContext) -> None:
         _stt = deepgram.STT(model='nova-2')
     else:
         _stt = aws.STT(language='{{ flow.stt.language }}')
+    {% elif flow.stt.provider == 'google' %}
+    if google is None:
+        logger.warning('Google STT plugin not available, falling back to Deepgram')
+        _stt = deepgram.STT(model='nova-2')
+    else:
+        _stt = google.STT(language='{{ flow.stt.language }}')
     {% elif flow.stt.provider == 'deepgram' %}
     _stt = deepgram.STT(model='{{ flow.stt.model or 'nova-3' }}')
     {% else %}
+    logger.warning("Unsupported STT provider '{{ flow.stt.provider }}', defaulting to Deepgram")
     _stt = deepgram.STT(model='nova-2')
     {% endif %}
 

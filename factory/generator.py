@@ -57,7 +57,10 @@ class CodeGenerator:
     def _toolify(name: str) -> str:
         """Convert a display name to an ASCII-safe tool name"""
         slug = CodeGenerator._ascii_slug(name)
-        return "go_" + (slug if slug else "tool")
+        # Convert to valid Python method identifier (no hyphens)
+        slug = (slug if slug else "tool").replace('-', '_')
+        tool_name = "go_" + slug
+        return CodeGenerator._cap_identifier(tool_name)
 
     @staticmethod
     def _ascii_slug(name: str) -> str:
@@ -70,6 +73,16 @@ class CodeGenerator:
         if slug and slug[0].isdigit():
             slug = f"n_{slug}"
         return slug
+
+    @staticmethod
+    def _cap_identifier(identifier: str, max_len: int = 64) -> str:
+        """Cap identifier length using slicing with short hash suffix for uniqueness."""
+        if len(identifier) <= max_len:
+            return identifier
+        import hashlib
+        digest = hashlib.sha1(identifier.encode('utf-8')).hexdigest()[:4]
+        head = identifier[: max_len - 5]
+        return f"{head}_{digest}"
     
     def generate_agent(
         self,
@@ -143,6 +156,8 @@ class CodeGenerator:
                 ["ruff", "check", "--fix", file_path],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=30
             )
             if result.returncode != 0:
@@ -153,6 +168,8 @@ class CodeGenerator:
                 ["ruff", "format", file_path],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=30
             )
             if result.returncode == 0:
@@ -296,8 +313,8 @@ if __name__ == "__main__":
     # Create a simple test flow
     from datetime import datetime
     from .schema_models import (
-        NodeOut, EdgeOut, ConversationSettings, GlobalSettings, EdgePrompt,
-        STTSettings, TTSSettings, LLMSettings, CallSettings, DisplayPosition,
+        NodeOut, EdgeOut, ConversationSettings, EdgePrompt,
+        STTSettings, LLMSettings, CallSettings, DisplayPosition,
         ElevenLabsTTSSettings
     )
     
@@ -331,7 +348,7 @@ if __name__ == "__main__":
         ),
         begin_position=DisplayPosition(x=0, y=0),
         start_node_id="greeting",
-        nodes=[
+                nodes=[
             NodeOut(
                 id="greeting",
                 created=datetime.now(),
@@ -345,8 +362,7 @@ if __name__ == "__main__":
                     on_enter_text="Hi! Welcome to Pizza Palace. What would you like to order?",
                     on_enter_type="prompt",
                     allow_interruptions=True,
-                    skip_response=False,
-                    finetune_examples=[]
+                    skip_response=False
                 )
             ),
             NodeOut(
@@ -362,8 +378,7 @@ if __name__ == "__main__":
                     on_enter_text="Great! Let me summarize your order.",
                     on_enter_type="prompt",
                     allow_interruptions=True,
-                    skip_response=False,
-                    finetune_examples=[]
+                    skip_response=False
                 )
             )
         ],

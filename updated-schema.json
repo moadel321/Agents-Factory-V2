@@ -97,23 +97,39 @@
       "llm_overrides": "Optional[LLMSimpleOverrides]",
       "capture": "Optional[List[ConversationSettings_CaptureField]]"
     },
+    "FunctionSettings_SpeakDuringExecution": {
+      "mode": "Literal['static', 'prompt']",
+      "text": "Optional[str]",
+      "instructions": "Optional[str]"
+    },
     "FunctionSettings": {
       "function_type": "Literal['sms', 'call_transfer', 'rest_webhook']",
+      "url": "str",
+      "method": "Literal['GET', 'POST', 'PUT', 'DELETE', 'PATCH']",
+      "headers": "Optional[Dict[str, str]]",
+      "body": "Optional[Dict]",
       "parameters_schema": "Optional[Dict]",
-      "timeout_ms": "Optional[int]",
-      "retries": "Optional[int]"
+      "timeout_ms": "int",
+      "retries": "int",
+      "speak_during_execution": "Optional[FunctionSettings_SpeakDuringExecution]",
+      "wait_for_result": "bool"
     },
     "NodeOut": {
       "id": "str",
       "created": "datetime",
       "updated": "datetime",
       "name": "str",
+      "class_name": "str",
       "is_global": "bool",
       "global_settings": "Optional[GlobalSettings]",
       "position": "DisplayPosition",
       "type": "Literal['conversation', 'function']",
+      "on_enter_text": "Optional[str]",
+      "on_enter_type": "Optional[Literal['prompt', 'static']]",
+      "skip_response": "Optional[bool]",
       "settings": "ConversationSettings",
-      "function": "Optional[FunctionSettings]"
+      "function": "Optional[FunctionSettings]",
+      "out_edges": "List[EdgeOut]"
     },
     "EdgePrompt": {
       "prompt": "str",
@@ -121,12 +137,17 @@
     },
     "EdgeOut": {
       "id": "str",
+      "edge_id": "str",
+      "edge_type": "str",
       "created": "datetime",
       "updated": "datetime",
       "from_node_id": "str",
       "to_node_id": "Optional[str]",
       "type": "Literal['prompt', 'skip']",
-      "settings": "Optional[EdgePrompt]"
+      "settings": "Optional[EdgePrompt]",
+      "tool_name": "str",
+      "description": "str",
+      "next_class_name": "Optional[str]"
     },
     "ConversationFlowOut": {
       "id": "str",
@@ -142,6 +163,7 @@
       "post_call_analysis": "Optional[PostCallAnalysisSettings]",
       "begin_position": "DisplayPosition",
       "start_node_id": "Optional[str]",
+      "start_class_name": "str",
       "nodes": "List[NodeOut]",
       "edges": "List[EdgeOut]"
     }

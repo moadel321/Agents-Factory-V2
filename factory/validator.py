@@ -27,7 +27,7 @@ def _toposort(nodes: Set[str], edges: Dict[str, Set[str]]) -> bool:
     return seen == len(nodes)
 
 
-def validate_flow(flow: ConversationFlowOut, strict: bool = True) -> None:
+def validate_flow(flow: ConversationFlowOut, strict: bool = True, allow_cycles: bool = False) -> None:
     """
     Minimal structural validation of flow definition.
     Invariants like settings presence are pushed to template assertions.
@@ -35,6 +35,7 @@ def validate_flow(flow: ConversationFlowOut, strict: bool = True) -> None:
     Args:
         flow: Flow definition to validate
         strict: Unused, kept for API compatibility
+        allow_cycles: If True, skip DAG validation and allow cycles in the flow
     """
     try:
         flow.model_dump()
@@ -73,7 +74,7 @@ def validate_flow(flow: ConversationFlowOut, strict: bool = True) -> None:
             if not (is_self_loop and is_conversation_node):
                 adj[e.from_node_id].add(e.to_node_id)
 
-    if not _toposort(node_ids, adj):
+    if not allow_cycles and not _toposort(node_ids, adj):
         raise FlowValidationError("Flow contains a cycle; DAG required")
 
     # At least one terminal (skip to None) or explicit terminal node implied by no outgoing edges

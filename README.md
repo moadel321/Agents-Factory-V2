@@ -91,7 +91,20 @@ Your voice AI agent is now running and ready for connections!
   - [Project Structure \& File Explanations](#project-structure--file-explanations)
     - [`/factory/`](#factory)
   - [Schema changes performed](#schema-changes-performed)
-    - [Structural differences (original-schema.json → current schema used by flows)](#structural-differences-original-schemajson--current-schema-used-by-flows)
+    - [Structural differences (original\_schema.json → updated-schema.json)](#structural-differences-original_schemajson--updated-schemajson)
+      - [**1. Format \& Structure**](#1-format--structure)
+      - [**2. STT Settings**](#2-stt-settings)
+      - [**3. TTS Settings**](#3-tts-settings)
+      - [**4. LLM Settings**](#4-llm-settings)
+      - [**5. CallSettings**](#5-callsettings)
+      - [**6. GlobalSettings**](#6-globalsettings)
+      - [**7. New Schema Components (Not in Original)**](#7-new-schema-components-not-in-original)
+      - [**8. ConversationSettings**](#8-conversationsettings)
+      - [**9. FunctionSettings - Complete Redesign**](#9-functionsettings---complete-redesign)
+      - [**10. NodeOut**](#10-nodeout)
+      - [**11. EdgeOut**](#11-edgeout)
+      - [**12. ConversationFlowOut**](#12-conversationflowout)
+      - [**13. Type System Changes**](#13-type-system-changes)
 
 
 
@@ -416,8 +429,7 @@ The factory provides a command-line interface for common tasks.
 Generates a single agent file from a JSON input.
 
 ```bash
-python -m factory.cli generate \
-  --input flows/pizza_flow.json \
+python -m factory.cli generate --input flows/my_flow.json 
   --output generated/agent_pizza.py
 
 # Additional options:
@@ -536,33 +548,97 @@ This directory contains the core logic for parsing, validating, and transforming
 
 ## Schema changes performed
 
-### Structural differences (original-schema.json → current schema used by flows)
+### Structural differences (original_schema.json → updated-schema.json)
 
-- **STT providers and fields**  
-  original: `STT_PROVIDERS = ["google","aws"]`; no `model` field.  
-  current: `["google","aws","azure","deepgram"]` and `STTSettings.model` optional (e.g., Deepgram `nova-3`).
+The schema evolved from Python Pydantic models to a JSON-based schema definition to better align with the Jinja template's requirements. Below are all differences between the two schemas.
 
-- **TTS (ElevenLabs/AWS)**  
-  original: ElevenLabs `model: str` (free-form); AWS Polly supported.  
-  current: ElevenLabs `model` is a strict Literal set (`eleven_multilingual_v2`, `eleven_flash_v2_5`, etc.); AWS Polly still supported. `voice_settings` fields are optional (`style`/`speed`/`use_speaker_boost`) instead of `Union[..., None]`.
+#### **1. Format & Structure**
+- **Original**: Python code with Pydantic `BaseModel` classes
+- **Updated**: JSON schema with string-based type annotations and an imports section
 
-- **LLM settings**
-  original: `model` Literal constrained to `['gpt-4.1','azure-gpt-4.1']`.
-  current: `model: str` (unconstrained to support OpenAI, Azure OpenAI, Gemini, etc.); `provider` unchanged (`openai|azure|google`).
+#### **2. STT Settings**
+- **Original**: `provider: Literal["google", "aws"]` (2 providers only)
+- **Updated**: `provider: Literal['google', 'aws', 'azure', 'deepgram']` (4 providers)
+- **Added**: `model: Optional[str]` field for provider-specific models (e.g., Deepgram `nova-3`)
 
-- **Conversation settings**  
-  original: no `llm_overrides`, no structured captures.  
-  current: adds `llm_overrides` (per-node LLM tweaks) and `capture` fields (typed, enum, multi, required, description).
+#### **3. TTS Settings**
+- **Original**: ElevenLabs `model: str` (any string)
+- **Updated**: `model: Literal['eleven_multilingual_v2', 'eleven_flash_v2_5', 'eleven_flash_v2', 'eleven_turbo_v2_5', 'eleven_turbo_v2']` (constrained set)
 
-- **Function nodes support**  
-  original: `NodeOut` lacks a `function` configuration; function behavior not modeled.  
-  current: adds `FunctionSettings` and `NodeOut.function` (supports `sms`, `call_transfer`, `rest_webhook` + JSON schema, timeout, retries).
+#### **4. LLM Settings**
+- **Original**: `provider: Literal["openai", "google"]` (2 providers)
+- **Updated**: `provider: Literal['openai', 'azure', 'google']` (added Azure support)
+- **Original**: `model: Literal['gpt-4.1']` (single constrained model)
+- **Updated**: `model: str` (any string for flexibility across providers)
 
-- **Edges**  
-  original: `EdgePrompt` has only `prompt`.  
-  current: adds optional `name` to `EdgePrompt` (used to generate stable tool names).
+#### **5. CallSettings**
+- **Original**: Includes Pydantic Field validation constraints (`ge=`, `le=`)
+- **Updated**: Simple `int` types without validation constraints
 
-- **Flow**  
-  both: include `call_settings`, `begin_position`, `start_node_id` (optional), `nodes`, `edges`.  
-  current validator behavior (not schema fields): enforces DAG, allows conversation self‑loops, forbids multi‑node cycles.
+#### **6. GlobalSettings**
+- **Original**: `finetune_examples` field commented out
+- **Updated**: `finetune_examples: List[GlobalSettings_FinetuneExample]` fully defined and active
+
+#### **7. New Schema Components (Not in Original)**
+- `PostCallAnalysisItem` and `PostCallAnalysisSettings` - Post-call analysis configuration
+- `DisplayPosition` - UI positioning with x/y coordinates
+- `LLMSimpleOverrides` - Per-node LLM overrides
+- `ConversationSettings_CaptureField` - Data capture field definitions
+
+#### **8. ConversationSettings**
+- **Original**: Has `type: Literal["conversation"]` discriminator field, `finetune_examples` commented out
+- **Updated**: No `type` field, includes active `finetune_examples`, added `llm_overrides` and `capture` fields
+
+#### **9. FunctionSettings - Complete Redesign**
+
+**Original Structure:**
+```python
+speak_during_execution: bool
+wait_for_completion: bool
+allow_interruptions: bool
+type: Literal["function"] = "function"
+speak_message: str | None
+speak_type: Literal["prompt", "static"]
+body: FunctionCallBody  # Complex nested structure
+```
+
+**Updated Structure:**
+```json
+function_type: Literal['sms', 'call_transfer', 'rest_webhook']
+url: str
+method: Literal['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
+headers: Optional[Dict[str, str]]
+body: Optional[Dict]
+parameters_schema: Optional[Dict]
+timeout_ms: int
+retries: int
+speak_during_execution: Optional[FunctionSettings_SpeakDuringExecution]
+wait_for_result: bool
+```
+
+**Key Changes:**
+- **Removed**: `wait_for_completion`, `allow_interruptions`, `type`, `speak_message`, `speak_type`
+- **Added**: `function_type`, `url`, `method`, `headers`, `timeout_ms`, `retries`, `parameters_schema`, `wait_for_result`
+- **Changed**: `speak_during_execution` from boolean to nested object with `mode/text/instructions`
+- **Changed**: `body` from `FunctionCallBody` structure to generic `Optional[Dict]`
+- **Removed**: `FunctionCallBody`, `ParamType`, `BodyType` classes (simplified to generic dicts)
+
+#### **10. NodeOut**
+- **Added Fields**: `created`, `updated`, `class_name`, `position`, `on_enter_text`, `on_enter_type`, `skip_response`, `out_edges`
+- **Changed**: `settings` from discriminated union (`SettingType`) to always `ConversationSettings`
+- **Changed**: Separate `function: Optional[FunctionSettings]` field instead of discriminated union
+- **Removed**: `SettingType` discriminated union pattern
+
+#### **11. EdgeOut**
+- **Added Fields**: `edge_id`, `edge_type`, `created`, `updated`, `tool_name`, `description`, `next_class_name`
+- **Changed**: `EdgePrompt` now includes optional `name` field
+
+#### **12. ConversationFlowOut**
+- **Added Fields**: `url_id`, `created`, `updated`, `post_call_analysis`, `begin_position`, `start_class_name`
+- **Removed**: Field validation constraints
+
+#### **13. Type System Changes**
+- **Original**: Python union types (`|` operator), discriminated unions via `Field(discriminator=...)`
+- **Updated**: Uses `Optional[]` notation, simpler structure, avoids discriminated unions for nodes
+
 

@@ -72,9 +72,9 @@ def cli(ctx, verbose):
 
 
 @cli.command()
-@click.option('--input', '-i', 'input_file', required=True, 
+@click.option('--input', '-i', 'input_file', required=True,
               help='Input JSON file containing flow definition')
-@click.option('--output', '-o', 'output_file', 
+@click.option('--output', '-o', 'output_file',
               help='Output Python file (default: generated/agent_{url_id}.py)')
 @click.option('--output-dir', '-d', 'output_dir', default='generated',
               help='Output directory for generated files')
@@ -82,12 +82,14 @@ def cli(ctx, verbose):
               help='Validate flow before generation')
 @click.option('--strict/--no-strict', default=True,
               help='Strict validation including environment checks')
-@click.option('--template-dir', '-t', 
+@click.option('--allow-cycles', is_flag=True, default=False,
+              help='Allow cycles in the flow graph (skip DAG validation)')
+@click.option('--template-dir', '-t',
               help='Custom template directory')
 @click.option('--stdout', is_flag=True, help='Print generated code to STDOUT instead of writing a file')
 @click.option('--format', 'out_format', type=click.Choice(['text', 'json']), default='text',
               help='STDOUT format when using --stdout (default: text)')
-def generate(input_file, output_file, output_dir, validate, strict, template_dir, stdout, out_format):
+def generate(input_file, output_file, output_dir, validate, strict, allow_cycles, template_dir, stdout, out_format):
     """Generate an agent from a flow definition file"""
     try:
         logger.info(f"Generating agent from {input_file}")
@@ -102,7 +104,7 @@ def generate(input_file, output_file, output_dir, validate, strict, template_dir
         # Validate if requested
         if validate:
             logger.info("Validating flow...")
-            validate_flow(flow, strict=strict)
+            validate_flow(flow, strict=strict, allow_cycles=allow_cycles)
             logger.info("Flow validation passed")
         
         generator = CodeGenerator(template_dir)
@@ -168,11 +170,13 @@ def generate(input_file, output_file, output_dir, validate, strict, template_dir
               help='Validate flows before generation')
 @click.option('--strict/--no-strict', default=True,
               help='Strict validation including environment checks')
+@click.option('--allow-cycles', is_flag=True, default=False,
+              help='Allow cycles in the flow graph (skip DAG validation)')
 @click.option('--template-dir', '-t',
               help='Custom template directory')
 @click.option('--continue-on-error', is_flag=True,
               help='Continue processing other files if one fails')
-def batch(input_dir, output_dir, pattern, validate, strict, template_dir, continue_on_error):
+def batch(input_dir, output_dir, pattern, validate, strict, allow_cycles, template_dir, continue_on_error):
     """Generate agents from multiple flow definition files"""
     try:
         input_path = Path(input_dir)
@@ -204,7 +208,7 @@ def batch(input_dir, output_dir, pattern, validate, strict, template_dir, contin
                 
                 # Validate if requested
                 if validate:
-                    validate_flow(flow, strict=strict)
+                    validate_flow(flow, strict=strict, allow_cycles=allow_cycles)
                 
                 # Generate
                 output_file = os.path.join(output_dir, f"agent_{flow.url_id}.py")
@@ -242,7 +246,9 @@ def batch(input_dir, output_dir, pattern, validate, strict, template_dir, contin
               help='Input JSON file containing flow definition')
 @click.option('--strict/--no-strict', default=True,
               help='Strict validation including environment checks')
-def validate_cmd(input_file, strict):
+@click.option('--allow-cycles', is_flag=True, default=False,
+              help='Allow cycles in the flow graph (skip DAG validation)')
+def validate_cmd(input_file, strict, allow_cycles):
     """Validate a flow definition file"""
     try:
         logger.info(f"Validating flow from {input_file}")
@@ -252,9 +258,9 @@ def validate_cmd(input_file, strict):
             flow_data = json.load(f)
         
         flow = ConversationFlowOut(**flow_data)
-        
+
         # Validate
-        validate_flow(flow, strict=strict)
+        validate_flow(flow, strict=strict, allow_cycles=allow_cycles)
         
         click.echo("✓ Flow validation passed")
         logger.info("Flow validation successful")
@@ -337,8 +343,7 @@ def create_example(output_file):
                         on_enter_text="Hi! Welcome to Pizza Palace. What would you like to order today?",
                         on_enter_type="prompt",
                         allow_interruptions=True,
-                        skip_response=False,
-                        finetune_examples=[]
+                        skip_response=False
                     )
                 ),
                 
@@ -355,8 +360,7 @@ def create_example(output_file):
                         on_enter_text="Great! Please tell me what pizza you'd like and your phone number.",
                         on_enter_type="prompt",
                         allow_interruptions=True,
-                        skip_response=False,
-                        finetune_examples=[]
+                        skip_response=False
                     )
                 ),
                 
@@ -395,8 +399,7 @@ def create_example(output_file):
                         on_enter_text="Perfect! Your order has been placed and you should receive a confirmation SMS shortly. Your pizza will be ready in about 20 minutes. Thank you for choosing Pizza Palace!",
                         on_enter_type="prompt",
                         allow_interruptions=True,
-                        skip_response=False,
-                        finetune_examples=[]
+                        skip_response=False
                     )
                 )
             ],
