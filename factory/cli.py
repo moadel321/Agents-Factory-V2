@@ -83,7 +83,7 @@ def cli(ctx, verbose):
 @click.option('--strict/--no-strict', default=True,
               help='Strict validation including environment checks')
 @click.option('--allow-cycles', is_flag=True, default=False,
-              help='Allow cycles in the flow graph (skip DAG validation)')
+              help='Allow cycles/reverse edges for bidirectional navigation (Retell-style "go back")')
 @click.option('--template-dir', '-t',
               help='Custom template directory')
 @click.option('--stdout', is_flag=True, help='Print generated code to STDOUT instead of writing a file')
@@ -171,7 +171,7 @@ def generate(input_file, output_file, output_dir, validate, strict, allow_cycles
 @click.option('--strict/--no-strict', default=True,
               help='Strict validation including environment checks')
 @click.option('--allow-cycles', is_flag=True, default=False,
-              help='Allow cycles in the flow graph (skip DAG validation)')
+              help='Allow cycles/reverse edges for bidirectional navigation (Retell-style "go back")')
 @click.option('--template-dir', '-t',
               help='Custom template directory')
 @click.option('--continue-on-error', is_flag=True,
@@ -247,7 +247,7 @@ def batch(input_dir, output_dir, pattern, validate, strict, allow_cycles, templa
 @click.option('--strict/--no-strict', default=True,
               help='Strict validation including environment checks')
 @click.option('--allow-cycles', is_flag=True, default=False,
-              help='Allow cycles in the flow graph (skip DAG validation)')
+              help='Allow cycles/reverse edges for bidirectional navigation (Retell-style "go back")')
 def validate_cmd(input_file, strict, allow_cycles):
     """Validate a flow definition file"""
     try:

@@ -4,50 +4,66 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mermaid Diagram</title>
-  <style>body{margin:0;padding:16px;background:#fff} .mermaid{font-family:ui-sans-serif,system-ui,sans-serif}</style>
+  <style>
+    body{margin:0;padding:16px;background:#fff}
+    .mermaid{font-family:ui-sans-serif,system-ui,sans-serif;font-size:14px;}
+  </style>
   <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({ startOnLoad: true });
+    mermaid.initialize({
+      startOnLoad: true,
+      securityLevel: 'loose',
+      flowchart: {
+        htmlLabels: true,
+        curve: 'basis',
+        nodeSpacing: 60,
+        rankSpacing: 90,
+        diagramPadding: 16
+      }
+    });
   </script>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';">
   </head>
 <body>
-<pre class="mermaid">flowchart TB
+<pre class="mermaid">flowchart LR
   subgraph Legend
-    legend["LLM: gpt-4.1 (temp=0.0) STT: aws ar-SA TTS: aws voice=Hala Call: who=user, silence=10000ms, max=60000ms"]
+    legend["Flow: Balady Conversation Flow&lt;br/&gt;LLM: gpt-4o-mini (temp=0.5)&lt;br/&gt;STT: azure ar-SA&lt;br/&gt;TTS: eleven_multilingual_v2 voice=4wf10lgibMnboGJGCLrP&lt;br/&gt;Call: who=user, silence=10000ms, max=60000ms"]
   end
   subgraph Conversation
-    3861fccb-1d03-435e-9ebd-777b6867ecc1["The question is about commercial licensing services. (3861fccb-1d03-435e-9ebd-777b6867ecc1)"]
-    8e62249f-390e-411e-8bcf-2a7469a0740f["Welcome Node (8e62249f-390e-411e-8bcf-2a7469a0740f)"]
-    52dcf9e5-a948-4c25-85ed-91db856486cf["Inquiry about construction permit services. (52dcf9e5-a948-4c25-85ed-91db856486cf)"]
-    de814183-88de-4412-9d2a-ae387ced5b82["The client needs to file a report about the issue they are facing. (de814183-88de-4412-9d2a-ae387ced5b82)"]
-    ed0c12c8-d1c2-4916-8420-8ae56da668f6["For inquiries about health certificates (ed0c12c8-d1c2-4916-8420-8ae56da668f6)"]
-    7d4efc35-454a-402a-8ae1-e950104ef6b9["Questions outside the scope (7d4efc35-454a-402a-8ae1-e950104ef6b9)"]
-    5fb9d8c6-da7b-4751-824b-beee19b52c4b["Any question regarding the Baladi application (5fb9d8c6-da7b-4751-824b-beee19b52c4b)"]
-    3cf127d0-051e-43da-8d13-a5161b4fcc15["The client has finished their call and is satisfied with the answer. (3cf127d0-051e-43da-8d13-a5161b4fcc15)"]
+    n_3861fccb_1d03_435e_9ebd_777b6867ecc1["The question is about commercial&lt;br/&gt;licensing services. (3861fccb…)"]
+    n_8e62249f_390e_411e_8bcf_2a7469a0740f["Welcome Node (8e62249f…)"]
+    n_52dcf9e5_a948_4c25_85ed_91db856486cf["Inquiry about construction permit&lt;br/&gt;services. (52dcf9e5…)"]
+    de814183_88de_4412_9d2a_ae387ced5b82["The client needs to file a report&lt;br/&gt;about the issue they are facing. (de814183…)"]
+    ed0c12c8_d1c2_4916_8420_8ae56da668f6["For inquiries about health&lt;br/&gt;certificates (ed0c12c8…)"]
+    n_7d4efc35_454a_402a_8ae1_e950104ef6b9["Questions outside the scope (7d4efc35…)"]
+    n_5fb9d8c6_da7b_4751_824b_beee19b52c4b["Any question regarding the Baladi&lt;br/&gt;application (5fb9d8c6…)"]
+    n_3cf127d0_051e_43da_8d13_a5161b4fcc15["The client has finished their call&lt;br/&gt;and is satisfied with the answer. (3cf127d0…)"]
   end
-  7d4efc35-454a-402a-8ae1-e950104ef6b9 -- "اذا المستخدم انتهى من الحديث و كان راضي عن الاجابة ولا يحتاج الي شي اخر " --&gt; 3cf127d0-051e-43da-8d13-a5161b4fcc15
-  7d4efc35-454a-402a-8ae1-e950104ef6b9 -- "اهلين كيف اقدر اخدمك في تطبيق بلدي ؟" --&gt; 5fb9d8c6-da7b-4751-824b-beee19b52c4b
-  7d4efc35-454a-402a-8ae1-e950104ef6b9 -- "المستخدم طلب استفسار عن خدمات الشهادات الصحية " --&gt; ed0c12c8-d1c2-4916-8420-8ae56da668f6
-  7d4efc35-454a-402a-8ae1-e950104ef6b9 -- "السوال عن خدمات الرخص الانشائية " --&gt; 52dcf9e5-a948-4c25-85ed-91db856486cf
-  7d4efc35-454a-402a-8ae1-e950104ef6b9 -- "السوال عن خدمات الرخص التجارية " --&gt; 3861fccb-1d03-435e-9ebd-777b6867ecc1
-  5fb9d8c6-da7b-4751-824b-beee19b52c4b -- "سؤال خارج الاختصاص " --&gt; 7d4efc35-454a-402a-8ae1-e950104ef6b9
-  ed0c12c8-d1c2-4916-8420-8ae56da668f6 -- "سؤال خارج الاختصاص " --&gt; 7d4efc35-454a-402a-8ae1-e950104ef6b9
-  de814183-88de-4412-9d2a-ae387ced5b82 -- "سؤال خارج الاختصاص " --&gt; 7d4efc35-454a-402a-8ae1-e950104ef6b9
-  52dcf9e5-a948-4c25-85ed-91db856486cf -- "سؤال خارج الاختصاص " --&gt; 7d4efc35-454a-402a-8ae1-e950104ef6b9
-  3861fccb-1d03-435e-9ebd-777b6867ecc1 -- "سؤال خارج الاختصاص " --&gt; 7d4efc35-454a-402a-8ae1-e950104ef6b9
-  5fb9d8c6-da7b-4751-824b-beee19b52c4b -- "المستخدم اكتفى بالاجابة و راضي عنها " --&gt; 3cf127d0-051e-43da-8d13-a5161b4fcc15
-  ed0c12c8-d1c2-4916-8420-8ae56da668f6 -- "المستخدم اكتفى بالاجابة و راضي عنها " --&gt; 3cf127d0-051e-43da-8d13-a5161b4fcc15
-  52dcf9e5-a948-4c25-85ed-91db856486cf -- "المستخدم اكتفى بالاجابة و راضي عنها " --&gt; 3cf127d0-051e-43da-8d13-a5161b4fcc15
-  8e62249f-390e-411e-8bcf-2a7469a0740f -- "المستخدم اكتفى بالاجابة و راضي عنها " --&gt; 3cf127d0-051e-43da-8d13-a5161b4fcc15
-  5fb9d8c6-da7b-4751-824b-beee19b52c4b -- "المستخدم يحتاج الى رفع بلاغ بالمشكلة اللي تواجهه " --&gt; de814183-88de-4412-9d2a-ae387ced5b82
-  ed0c12c8-d1c2-4916-8420-8ae56da668f6 -- "المستخدم يحتاج الى رفع بلاغ بالمشكلة اللي تواجهه " --&gt; de814183-88de-4412-9d2a-ae387ced5b82
-  52dcf9e5-a948-4c25-85ed-91db856486cf -- "المستخدم يحتاج الى رفع بلاغ بالمشكلة اللي تواجهه " --&gt; de814183-88de-4412-9d2a-ae387ced5b82
-  3861fccb-1d03-435e-9ebd-777b6867ecc1 -- "المستخدم يحتاج الى رفع بلاغ بالمشكلة اللي تواجهه " --&gt; de814183-88de-4412-9d2a-ae387ced5b82
-  8e62249f-390e-411e-8bcf-2a7469a0740f -- "اي سؤال او استفسار عن تطبيق او منصة بلدي " --&gt; 5fb9d8c6-da7b-4751-824b-beee19b52c4b
-  8e62249f-390e-411e-8bcf-2a7469a0740f -- "المستخدم طلب استفسار عن خدمات الشهادات الصحية " --&gt; ed0c12c8-d1c2-4916-8420-8ae56da668f6
-  8e62249f-390e-411e-8bcf-2a7469a0740f -- "المستخدم طلب استفسار عن الرخص الانشائية" --&gt; 52dcf9e5-a948-4c25-85ed-91db856486cf
-  8e62249f-390e-411e-8bcf-2a7469a0740f -- "المستخدم طلب استفسار عن الرخص التجارية" --&gt; 3861fccb-1d03-435e-9ebd-777b6867ecc1
+  start((Start)) --&gt; n_8e62249f_390e_411e_8bcf_2a7469a0740f
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "اذا المستخدم انتهى من الحديث&lt;br/&gt;و كان راضي عن الاجابة ولا&lt;br/&gt;يحتاج الي شي اخر" --&gt; n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "اهلين كيف اقدر اخدمك في&lt;br/&gt;تطبيق بلدي ؟" --&gt; n_5fb9d8c6_da7b_4751_824b_beee19b52c4b
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "المستخدم طلب استفسار عن&lt;br/&gt;خدمات الشهادات الصحية" --&gt; ed0c12c8_d1c2_4916_8420_8ae56da668f6
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "السوال عن خدمات الرخص&lt;br/&gt;الانشائية" --&gt; n_52dcf9e5_a948_4c25_85ed_91db856486cf
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "السوال عن خدمات الرخص&lt;br/&gt;التجارية" --&gt; n_3861fccb_1d03_435e_9ebd_777b6867ecc1
+  n_5fb9d8c6_da7b_4751_824b_beee19b52c4b -- "سؤال خارج الاختصاص" --&gt; n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  ed0c12c8_d1c2_4916_8420_8ae56da668f6 -- "سؤال خارج الاختصاص" --&gt; n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  de814183_88de_4412_9d2a_ae387ced5b82 -- "سؤال خارج الاختصاص" --&gt; n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  n_52dcf9e5_a948_4c25_85ed_91db856486cf -- "سؤال خارج الاختصاص" --&gt; n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  n_3861fccb_1d03_435e_9ebd_777b6867ecc1 -- "سؤال خارج الاختصاص" --&gt; n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  n_5fb9d8c6_da7b_4751_824b_beee19b52c4b -- "المستخدم اكتفى بالاجابة و&lt;br/&gt;راضي عنها" --&gt; n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  ed0c12c8_d1c2_4916_8420_8ae56da668f6 -- "المستخدم اكتفى بالاجابة و&lt;br/&gt;راضي عنها" --&gt; n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  n_52dcf9e5_a948_4c25_85ed_91db856486cf -- "المستخدم اكتفى بالاجابة و&lt;br/&gt;راضي عنها" --&gt; n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "المستخدم اكتفى بالاجابة و&lt;br/&gt;راضي عنها" --&gt; n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  n_3861fccb_1d03_435e_9ebd_777b6867ecc1 -- "go_back_to_welcome | المستخدم يريد الرجوع للبداية" --&gt; n_8e62249f_390e_411e_8bcf_2a7469a0740f
+  n_5fb9d8c6_da7b_4751_824b_beee19b52c4b -- "المستخدم يحتاج الى رفع بلاغ&lt;br/&gt;بالمشكلة اللي تواجهه" --&gt; de814183_88de_4412_9d2a_ae387ced5b82
+  ed0c12c8_d1c2_4916_8420_8ae56da668f6 -- "المستخدم يحتاج الى رفع بلاغ&lt;br/&gt;بالمشكلة اللي تواجهه" --&gt; de814183_88de_4412_9d2a_ae387ced5b82
+  n_52dcf9e5_a948_4c25_85ed_91db856486cf -- "المستخدم يحتاج الى رفع بلاغ&lt;br/&gt;بالمشكلة اللي تواجهه" --&gt; de814183_88de_4412_9d2a_ae387ced5b82
+  n_3861fccb_1d03_435e_9ebd_777b6867ecc1 -- "المستخدم يحتاج الى رفع بلاغ&lt;br/&gt;بالمشكلة اللي تواجهه" --&gt; de814183_88de_4412_9d2a_ae387ced5b82
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "اي سؤال او استفسار عن تطبيق&lt;br/&gt;او منصة بلدي" --&gt; n_5fb9d8c6_da7b_4751_824b_beee19b52c4b
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "المستخدم طلب استفسار عن&lt;br/&gt;خدمات الشهادات الصحية" --&gt; ed0c12c8_d1c2_4916_8420_8ae56da668f6
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "المستخدم طلب استفسار عن&lt;br/&gt;الرخص الانشائية" --&gt; n_52dcf9e5_a948_4c25_85ed_91db856486cf
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "المستخدم طلب استفسار عن&lt;br/&gt;الرخص التجارية" --&gt; n_3861fccb_1d03_435e_9ebd_777b6867ecc1
+  linkStyle default interpolate basis
 </pre>
 </body>
 </html>

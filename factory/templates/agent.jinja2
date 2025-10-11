@@ -401,7 +401,11 @@ class {{ node.class_name }}(BaseFlowAgent):
         {% endif %}
         {% elif node.on_enter_type == "prompt" %}
         {% if not node.skip_response %}
+        {% if node.out_edges|length > 1 %}
+        await self.session.generate_reply(instructions="{{ (node.on_enter_text ~ ' — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة.') | replace('\n', '\\n') | replace('"', '\\"') }}")
+        {% else %}
         await self.session.generate_reply(instructions="{{ node.on_enter_text | replace('\n', '\\n') | replace('"', '\\"') }}")
+        {% endif %}
         {% endif %}
         {% endif %}
 
@@ -615,7 +619,7 @@ class {{ node.class_name }}(BaseFlowAgent):
     {% for edge in node.out_edges %}
     @function_tool
     async def {{ edge.tool_name }}(self) -> Optional[Agent]:
-        """{{ edge.description }}"""
+        """{{ edge.description }}{% if node.out_edges|length > 1 %} — ملاحظة: استخدم أداة واحدة فقط في هذا الدور؛ لا تجمع أكثر من أداة.{% endif %}"""
         flow_state: FlowState = self.session.userdata
         self._enable_preemptive_generation()
 

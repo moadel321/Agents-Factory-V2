@@ -19,6 +19,7 @@ Usage:
 import argparse
 import json
 import html as htmlmod
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -42,15 +43,80 @@ def _mescape(text: Optional[str]) -> str:
     """Escape text for embedding inside Mermaid labels/blocks."""
     if not text:
         return ""
-    return text.replace("\n", " ").replace('"', '\\"')
+    escaped = (
+        text.replace("\\", "\\\\")
+        .replace("\n", "<br/>")
+        .replace("[", "&#91;")
+        .replace("]", "&#93;")
+        .replace('"', '\\"')
+    )
+    return escaped
 
 
-def build_mermaid(flow: ConversationFlowOut, direction: str = "TB") -> str:
-    """Build Mermaid flowchart source from the flow definition."""
+def _sanitize_id(node_id: str) -> str:
+    """Convert arbitrary node IDs (UUIDs, etc.) into Mermaid-friendly identifiers."""
+    sanitized = re.sub(r"[^0-9a-zA-Z_]", "_", node_id)
+    if not sanitized:
+        sanitized = "node"
+    if sanitized[0].isdigit():
+        sanitized = f"n_{sanitized}"
+    return sanitized
+
+
+def _short_id(node_id: str) -> str:
+    """Return a shortened id for compact display labels."""
+    return (node_id or "")[:8] + ("…" if node_id and len(node_id) > 8 else "")
+
+
+def _wrap_text(text: str, line_len: int) -> str:
+    """Wrap long labels at word boundaries to improve readability."""
+    if not text:
+        return ""
+    words = text.split()
+    lines: list[str] = []
+    current: list[str] = []
+    cur_len = 0
+    for w in words:
+        add = len(w) + (1 if current else 0)
+        if cur_len + add > line_len and current:
+            lines.append(" ".join(current))
+            current = [w]
+            cur_len = len(w)
+        else:
+            current.append(w)
+            cur_len += add
+    if current:
+        lines.append(" ".join(current))
+    return "<br/>".join(lines)
+
+
+def build_mermaid(
+    flow: ConversationFlowOut,
+    direction: str = "LR",
+    node_line_len: int = 36,
+    edge_line_len: int = 28,
+) -> str:
+    """Build Mermaid flowchart source from the flow definition.
+
+    Defaults chosen for readability: LR layout and wrapped labels.
+    """
     lines = [f"flowchart {direction}"]
+
+    # Map original node IDs to Mermaid-safe identifiers
+    node_id_map: dict[str, str] = {}
+    for node in flow.nodes:
+        sanitized = _sanitize_id(node.id)
+        # Ensure uniqueness in the rare case sanitization collides
+        original = sanitized
+        counter = 1
+        while sanitized in node_id_map.values():
+            sanitized = f"{original}_{counter}"
+            counter += 1
+        node_id_map[node.id] = sanitized
 
     # Legend
     legend = []
+    legend.append(f"Flow: {flow.name}")
     legend.append(f"LLM: {flow.llm_settings.model} (temp={flow.llm_settings.temperature})")
     legend.append(f"STT: {flow.stt_settings.provider} {flow.stt_settings.language}")
     tts_desc = getattr(flow.tts_settings, "model", None) or getattr(flow.tts_settings, "tts_provider", "")
@@ -70,8 +136,11 @@ def build_mermaid(flow: ConversationFlowOut, direction: str = "TB") -> str:
     if conv_nodes:
         lines.append("  subgraph Conversation")
         for n in conv_nodes:
-            title = f"{n.name} ({n.id})"
-            lines.append(f"    {n.id}[\"{_mescape(title)}\"]")
+            title_name = _wrap_text(n.name or n.id, node_line_len)
+            sid = _short_id(n.id)
+            title = f"{title_name} ({sid})"
+            mermaid_id = node_id_map[n.id]
+            lines.append(f"    {mermaid_id}[\"{_mescape(title)}\"]")
         lines.append("  end")
 
     # Function nodes
@@ -80,8 +149,14 @@ def build_mermaid(flow: ConversationFlowOut, direction: str = "TB") -> str:
         lines.append("  subgraph Function")
         for n in func_nodes:
             title = f"{n.name} ({n.id})"
-            lines.append(f"    {n.id}(\"{_mescape(title)}\")")
+            mermaid_id = node_id_map[n.id]
+            lines.append(f"    {mermaid_id}(\"{_mescape(title)}\")")
         lines.append("  end")
+
+    # Start node indicator, if available
+    if flow.start_node_id:
+        start_id = node_id_map.get(flow.start_node_id, _sanitize_id(flow.start_node_id))
+        lines.append(f"  start((Start)) --> {start_id}")
 
     # END node if any terminal edges
     if any(e.to_node_id is None for e in flow.edges):
@@ -89,23 +164,36 @@ def build_mermaid(flow: ConversationFlowOut, direction: str = "TB") -> str:
 
     # Edges with labels
     for e in flow.edges:
-        src = e.from_node_id
-        dst = e.to_node_id if e.to_node_id is not None else "END"
+        src = node_id_map.get(e.from_node_id)
+        if src is None:
+            src = _sanitize_id(e.from_node_id)
+            node_id_map[e.from_node_id] = src
+        if e.to_node_id is not None:
+            dst = node_id_map.get(e.to_node_id)
+            if dst is None:
+                dst = _sanitize_id(e.to_node_id)
+                node_id_map[e.to_node_id] = dst
+        else:
+            dst = "END"
         prompt = e.settings.prompt if e.settings else ""
         name = getattr(e.settings, "name", None) if e.settings else None
         label_parts = []
+        if e.type == "skip":
+            label_parts.append("(skip)")
         if name:
             label_parts.append(name)
         if prompt:
-            label_parts.append(prompt)
+            label_parts.append(_wrap_text(prompt, edge_line_len))
         if not label_parts and e.to_node_id is None:
             label_parts.append("(terminal)")
-        label = " — ".join(label_parts)
+        label = " | ".join(label_parts)
         if label:
             lines.append(f"  {src} -- \"{_mescape(label)}\" --> {dst}")
         else:
             lines.append(f"  {src} --> {dst}")
 
+    # Global styling hint: smoother curves for overlapping edges
+    lines.append("  linkStyle default interpolate basis")
     return "\n".join(lines) + "\n"
 
 
@@ -118,10 +206,23 @@ def write_mermaid_html(mermaid_text: str, out_path: Path) -> None:
   <meta charset=\"utf-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
   <title>Mermaid Diagram</title>
-  <style>body{{margin:0;padding:16px;background:#fff}} .mermaid{{font-family:ui-sans-serif,system-ui,sans-serif}}</style>
+  <style>
+    body{{margin:0;padding:16px;background:#fff}}
+    .mermaid{{font-family:ui-sans-serif,system-ui,sans-serif;font-size:14px;}}
+  </style>
   <script type=\"module\">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({{ startOnLoad: true }});
+    mermaid.initialize({{
+      startOnLoad: true,
+      securityLevel: 'loose',
+      flowchart: {{
+        htmlLabels: true,
+        curve: 'basis',
+        nodeSpacing: 60,
+        rankSpacing: 90,
+        diagramPadding: 16
+      }}
+    }});
   </script>
   <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';\">
   </head>
@@ -149,7 +250,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Visualize a conversation flow JSON as Mermaid + HTML")
     parser.add_argument("--input", "-i", required=True, help="Path to the flow JSON file")
     parser.add_argument("--output", "-o", help="Output base path (creates <base>.mmd and <base>.html)")
-    parser.add_argument("--direction", choices=["TB", "LR", "BT", "RL"], default="TB", help="Mermaid layout direction (default: TB)")
+    parser.add_argument("--direction", choices=["TB", "LR", "BT", "RL"], default="LR", help="Mermaid layout direction (default: LR)")
+    parser.add_argument("--node-line-len", type=int, default=36, help="Max characters per line for node labels (default: 36)")
+    parser.add_argument("--edge-line-len", type=int, default=28, help="Max characters per line for edge labels (default: 28)")
     args = parser.parse_args()
 
     flow = load_flow(args.input)
@@ -157,7 +260,7 @@ def main() -> int:
     base = _compute_base_output_path(args.input, args.output)
 
     # Generate Mermaid
-    mmd_text = build_mermaid(flow, direction=args.direction)
+    mmd_text = build_mermaid(flow, direction=args.direction, node_line_len=args.node_line_len, edge_line_len=args.edge_line_len)
     mmd_path = base.with_suffix(".mmd")
     mmd_path.write_text(mmd_text, encoding="utf-8")
     print(f"Wrote Mermaid file to {mmd_path}")

@@ -56,8 +56,8 @@
                 "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
-                "finetune_examples": [],
-                "llm_overrides": null
+                "type": "conversation",
+                "finetune_examples": []
             }
         },
         {
@@ -77,8 +77,8 @@
                 "on_enter_type": "static",
                 "allow_interruptions": true,
                 "skip_response": false,
-                "finetune_examples": [],
-                "llm_overrides": null
+                "type": "conversation",
+                "finetune_examples": []
             }
         },
         {
@@ -94,12 +94,12 @@
             },
             "type": "conversation",
             "settings": {
-                "on_enter_text": "انت مختص في الاجابة و المساعدة في الرخص الانشائية  ",
-                "on_enter_type": "prompt",
+                "on_enter_text": "بخصوص الرخص الإنشائية، وش سؤالك تحديدًا؟",
+                "on_enter_type": "static",
                 "allow_interruptions": true,
                 "skip_response": false,
-                "finetune_examples": [],
-                "llm_overrides": null
+                "type": "conversation",
+                "finetune_examples": []
             }
         },
         {
@@ -115,12 +115,12 @@
             },
             "type": "conversation",
             "settings": {
-                "on_enter_text": "اطلب من العميل شرح المشكلة و خذ منه المعلومات التالية : رقم الهوية من عشرة ارقام و رقم الجوال من عشرة ارقام و المدينة و البلدية و شرح المشكلة ثم صنف المشكلة حسب المناسب ",
-                "on_enter_type": "prompt",
+                "on_enter_text": "عشان أرفع البلاغ، عطيني رقم الهوية والجوال والمدينة والبلدية ووصف المشكلة.",
+                "on_enter_type": "static",
                 "allow_interruptions": true,
                 "skip_response": false,
-                "finetune_examples": [],
-                "llm_overrides": null
+                "type": "conversation",
+                "finetune_examples": []
             }
         },
         {
@@ -140,8 +140,8 @@
                 "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
-                "finetune_examples": [],
-                "llm_overrides": null
+                "type": "conversation",
+                "finetune_examples": []
             }
         },
         {
@@ -161,8 +161,8 @@
                 "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
-                "finetune_examples": [],
-                "llm_overrides": null
+                "type": "conversation",
+                "finetune_examples": []
             }
         },
         {
@@ -182,8 +182,8 @@
                 "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
-                "finetune_examples": [],
-                "llm_overrides": null
+                "type": "conversation",
+                "finetune_examples": []
             }
         },
         {
@@ -203,8 +203,8 @@
                 "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
-                "finetune_examples": [],
-                "llm_overrides": null
+                "type": "conversation",
+                "finetune_examples": []
             }
         }
     ],
@@ -361,6 +361,18 @@
             "type": "prompt",
             "settings": {
                 "prompt": "المستخدم اكتفى بالاجابة و راضي عنها "
+            }
+        },
+        {
+            "id": "edge_go_back_from_commercial_to_welcome",
+            "created": "2025-10-10T00:00:00",
+            "updated": "2025-10-10T00:00:00",
+            "from_node_id": "3861fccb-1d03-435e-9ebd-777b6867ecc1",
+            "to_node_id": "8e62249f-390e-411e-8bcf-2a7469a0740f",
+            "type": "prompt",
+            "settings": {
+                "prompt": "المستخدم يريد الرجوع للبداية",
+                "name": "go_back_to_welcome"
             }
         },
         {
