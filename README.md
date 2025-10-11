@@ -68,6 +68,7 @@ Your voice AI agent is now running and ready for connections!
   - [Runtime Flags and Modes](#runtime-flags-and-modes)
     - [Logging and Debugging](#logging-and-debugging)
     - [Turn-Taking and Preemptive Generation](#turn-taking-and-preemptive-generation)
+    - [Multi-Edge Routing and Single-Tool Guidance](#multi-edge-routing-and-single-tool-guidance)
   - [The Flow JSON Schema](#the-flow-json-schema)
     - [Root Object](#root-object)
     - [`stt_settings`](#stt_settings)
@@ -80,6 +81,8 @@ Your voice AI agent is now running and ready for connections!
     - [Edge Object](#edge-object)
       - [`settings` (for Edges)](#settings-for-edges)
     - [Self-Loops for FAQ Patterns](#self-loops-for-faq-patterns)
+  - [Bidirectional Flows (Retell-style "go back")](#bidirectional-flows-retell-style-go-back)
+  - [Visualization (Mermaid)](#visualization-mermaid)
   - [CLI Usage](#cli-usage)
     - [`generate`](#generate)
     - [`batch`](#batch)
@@ -279,6 +282,26 @@ If `FACTORY_LOG_LEVEL` is not set:
 
 ---
 
+### Multi-Edge Routing and Single-Tool Guidance
+
+In conversation nodes with multiple outgoing edges ("multi-edge nodes"), the LLM chooses the next transition by calling exactly one tool that corresponds to the desired edge. The generator deliberately does not auto-route multi-edge nodes; this avoids naive transitions.
+
+- Multi-edge behavior:
+  - Each edge becomes a `@function_tool` on the node class.
+  - The tool's docstring is critical; it describes when to use that transition.
+  - The tool returns the next Agent (handoff) following LiveKit best practices.
+
+- Preventing multiple tool calls per turn:
+  - Some LLMs may try to call more than one tool in the same turn at multi-edge nodes, which can cause the SDK to complain that only one AgentTask is expected.
+  - To reduce this, the template now nudges the model to pick a single tool:
+    - For multi-edge prompt nodes, we append a one-line note to the `generate_reply` instruction (Arabic):
+      "ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة."
+    - For each edge tool at multi-edge nodes, we append a short suffix to the tool docstring:
+      "ملاحظة: استخدم أداة واحدة فقط في هذا الدور؛ لا تجمع أكثر من أداة."
+
+This prompt-only change keeps LiveKit's native pattern (tools return the next Agent), while significantly reducing multiple tool calls in a single turn without adding runtime guards.
+
+
 ## The Flow JSON Schema
 
 This section details the structure of the input JSON file.
@@ -421,6 +444,62 @@ The factory supports self-loops on conversation nodes, enabling FAQ-style intera
 
 ---
 
+## Bidirectional Flows (Retell-style "go back")
+
+Retell AI implements "go back" using explicit reverse edges and prompt conditions. To mirror this behavior:
+
+1. Add a reverse `prompt` edge from the current node to the previous node (or hub).
+2. Generate with cycles allowed: `--allow-cycles`.
+3. Keep multi-edge nodes inside cycles so the LLM chooses via tool call (prevents naive auto-advance).
+
+Example reverse edge:
+
+```json
+{
+  "id": "edge_go_back_to_welcome",
+  "from_node_id": "collect_info",
+  "to_node_id": "welcome",
+  "type": "prompt",
+  "settings": {
+    "prompt": "User wants to go back to the main menu",
+    "name": "go_back_to_welcome"
+  }
+}
+```
+
+Generate:
+
+```bash
+python -m factory.cli generate -i flows/my_flow.json --allow-cycles
+```
+
+The validator emits warnings for dangerous single-edge ping‑pong cycles when cycles are allowed. See `docs/bidirectional-flow-retell.md` and `docs/bidirectional-flows-guide.md` for details.
+
+---
+
+## Visualization (Mermaid)
+
+The `visualize_flow.py` tool renders a Mermaid diagram tuned for readability.
+
+```bash
+python visualize_flow.py --input flows/my_flow.json
+
+# Options
+python visualize_flow.py \
+  --input flows/my_flow.json \
+  --direction LR \
+  --node-line-len 36 \
+  --edge-line-len 28
+```
+
+Defaults:
+- Layout: `LR` (left→right)
+- Edge curves: smoothed (basis)
+- Spacing: nodeSpacing=60, rankSpacing=90, diagramPadding=16
+- Labels: wrapped text; short IDs in node labels
+
+---
+
 ## CLI Usage
 
 The factory provides a command-line interface for common tasks.
@@ -437,6 +516,7 @@ python -m factory.cli generate --input flows/my_flow.json
 # --template-dir, -t     Custom template directory
 # --validate/--no-validate   Validate before generation (default: true)
 # --strict/--no-strict   Strict validation (default: true)
+# --allow-cycles         Allow cycles/reverse edges for bidirectional navigation (Retell-style "go back")
 # --stdout               Print to stdout instead of file
 # --format text|json     Output format for stdout (default: text)
 ```
@@ -453,6 +533,7 @@ python -m factory.cli batch \
 # --pattern, -p          File pattern to match (default: *.json)
 # --validate/--no-validate   Validate before generation (default: true)
 # --strict/--no-strict   Strict validation (default: true)
+# --allow-cycles         Allow cycles/reverse edges for bidirectional navigation (Retell-style "go back")
 # --template-dir, -t     Custom template directory
 # --continue-on-error    Continue if a file fails
 ```
@@ -465,6 +546,7 @@ python -m factory.cli validate --input flows/pizza_flow.json
 
 # Additional options:
 # --strict/--no-strict   Strict validation (default: true)
+# --allow-cycles         Allow cycles/reverse edges for bidirectional navigation (Retell-style "go back")
 ```
 
 ---

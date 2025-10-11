@@ -77,12 +77,42 @@ def validate_flow(flow: ConversationFlowOut, strict: bool = True, allow_cycles: 
     if not allow_cycles and not _toposort(node_ids, adj):
         raise FlowValidationError("Flow contains a cycle; DAG required")
 
+    # Check for dangerous ping-pong patterns when cycles are allowed
+    if allow_cycles:
+        warnings = _detect_ping_pong_cycles(flow, adj)
+        for warning in warnings:
+            import logging
+            logging.getLogger(__name__).warning(warning)
+
     # At least one terminal (skip to None) or explicit terminal node implied by no outgoing edges
     has_terminal = any((e.type == "skip" and e.to_node_id is None) for e in flow.edges)
     if not has_terminal:
         # Accept if exists a node with zero outgoing edges
         if not any(len(adj[n]) == 0 for n in node_ids):
             raise FlowValidationError("No terminal path found (skip-to-null or sink node)")
+
+
+def _detect_ping_pong_cycles(flow: ConversationFlowOut, adj: Dict[str, Set[str]]) -> List[str]:
+    """Detect dangerous ping-pong patterns in bidirectional flows"""
+    warnings = []
+    edge_counts = {n.id: len(adj[n.id]) for n in flow.nodes}
+
+    checked_pairs = set()
+    for node_a in adj:
+        for node_b in adj[node_a]:
+            if node_a in adj[node_b]:  # Bidirectional edge
+                pair = tuple(sorted([node_a, node_b]))
+                if pair in checked_pairs:
+                    continue
+                checked_pairs.add(pair)
+
+                if edge_counts[node_a] == 1 and edge_counts[node_b] == 1:
+                    warnings.append(
+                        f"⚠️  Nodes {node_a[:8]}... and {node_b[:8]}... form a single-edge cycle. "
+                        "This will auto-advance infinitely. Add more edges to prevent ping-pong."
+                    )
+
+    return warnings
 
 
 def _validate_self_loop_restrictions(flow: ConversationFlowOut) -> None:

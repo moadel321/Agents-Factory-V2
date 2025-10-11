@@ -1,0 +1,39 @@
+flowchart LR
+  subgraph Legend
+    legend["Flow: Balady Conversation Flow<br/>LLM: gpt-4o-mini (temp=0.5)<br/>STT: azure ar-SA<br/>TTS: eleven_multilingual_v2 voice=4wf10lgibMnboGJGCLrP<br/>Call: who=user, silence=10000ms, max=60000ms"]
+  end
+  subgraph Conversation
+    n_3861fccb_1d03_435e_9ebd_777b6867ecc1["The question is about commercial<br/>licensing services. (3861fccb…)"]
+    n_8e62249f_390e_411e_8bcf_2a7469a0740f["Welcome Node (8e62249f…)"]
+    n_52dcf9e5_a948_4c25_85ed_91db856486cf["Inquiry about construction permit<br/>services. (52dcf9e5…)"]
+    de814183_88de_4412_9d2a_ae387ced5b82["The client needs to file a report<br/>about the issue they are facing. (de814183…)"]
+    ed0c12c8_d1c2_4916_8420_8ae56da668f6["For inquiries about health<br/>certificates (ed0c12c8…)"]
+    n_7d4efc35_454a_402a_8ae1_e950104ef6b9["Questions outside the scope (7d4efc35…)"]
+    n_5fb9d8c6_da7b_4751_824b_beee19b52c4b["Any question regarding the Baladi<br/>application (5fb9d8c6…)"]
+    n_3cf127d0_051e_43da_8d13_a5161b4fcc15["The client has finished their call<br/>and is satisfied with the answer. (3cf127d0…)"]
+  end
+  start((Start)) --> n_8e62249f_390e_411e_8bcf_2a7469a0740f
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "اذا المستخدم انتهى من الحديث<br/>و كان راضي عن الاجابة ولا<br/>يحتاج الي شي اخر" --> n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "اهلين كيف اقدر اخدمك في<br/>تطبيق بلدي ؟" --> n_5fb9d8c6_da7b_4751_824b_beee19b52c4b
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "المستخدم طلب استفسار عن<br/>خدمات الشهادات الصحية" --> ed0c12c8_d1c2_4916_8420_8ae56da668f6
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "السوال عن خدمات الرخص<br/>الانشائية" --> n_52dcf9e5_a948_4c25_85ed_91db856486cf
+  n_7d4efc35_454a_402a_8ae1_e950104ef6b9 -- "السوال عن خدمات الرخص<br/>التجارية" --> n_3861fccb_1d03_435e_9ebd_777b6867ecc1
+  n_5fb9d8c6_da7b_4751_824b_beee19b52c4b -- "سؤال خارج الاختصاص" --> n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  ed0c12c8_d1c2_4916_8420_8ae56da668f6 -- "سؤال خارج الاختصاص" --> n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  de814183_88de_4412_9d2a_ae387ced5b82 -- "سؤال خارج الاختصاص" --> n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  n_52dcf9e5_a948_4c25_85ed_91db856486cf -- "سؤال خارج الاختصاص" --> n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  n_3861fccb_1d03_435e_9ebd_777b6867ecc1 -- "سؤال خارج الاختصاص" --> n_7d4efc35_454a_402a_8ae1_e950104ef6b9
+  n_5fb9d8c6_da7b_4751_824b_beee19b52c4b -- "المستخدم اكتفى بالاجابة و<br/>راضي عنها" --> n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  ed0c12c8_d1c2_4916_8420_8ae56da668f6 -- "المستخدم اكتفى بالاجابة و<br/>راضي عنها" --> n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  n_52dcf9e5_a948_4c25_85ed_91db856486cf -- "المستخدم اكتفى بالاجابة و<br/>راضي عنها" --> n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "المستخدم اكتفى بالاجابة و<br/>راضي عنها" --> n_3cf127d0_051e_43da_8d13_a5161b4fcc15
+  n_3861fccb_1d03_435e_9ebd_777b6867ecc1 -- "go_back_to_welcome | المستخدم يريد الرجوع للبداية" --> n_8e62249f_390e_411e_8bcf_2a7469a0740f
+  n_5fb9d8c6_da7b_4751_824b_beee19b52c4b -- "المستخدم يحتاج الى رفع بلاغ<br/>بالمشكلة اللي تواجهه" --> de814183_88de_4412_9d2a_ae387ced5b82
+  ed0c12c8_d1c2_4916_8420_8ae56da668f6 -- "المستخدم يحتاج الى رفع بلاغ<br/>بالمشكلة اللي تواجهه" --> de814183_88de_4412_9d2a_ae387ced5b82
+  n_52dcf9e5_a948_4c25_85ed_91db856486cf -- "المستخدم يحتاج الى رفع بلاغ<br/>بالمشكلة اللي تواجهه" --> de814183_88de_4412_9d2a_ae387ced5b82
+  n_3861fccb_1d03_435e_9ebd_777b6867ecc1 -- "المستخدم يحتاج الى رفع بلاغ<br/>بالمشكلة اللي تواجهه" --> de814183_88de_4412_9d2a_ae387ced5b82
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "اي سؤال او استفسار عن تطبيق<br/>او منصة بلدي" --> n_5fb9d8c6_da7b_4751_824b_beee19b52c4b
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "المستخدم طلب استفسار عن<br/>خدمات الشهادات الصحية" --> ed0c12c8_d1c2_4916_8420_8ae56da668f6
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "المستخدم طلب استفسار عن<br/>الرخص الانشائية" --> n_52dcf9e5_a948_4c25_85ed_91db856486cf
+  n_8e62249f_390e_411e_8bcf_2a7469a0740f -- "المستخدم طلب استفسار عن<br/>الرخص التجارية" --> n_3861fccb_1d03_435e_9ebd_777b6867ecc1
+  linkStyle default interpolate basis
