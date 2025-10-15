@@ -401,11 +401,11 @@ class {{ node.class_name }}(BaseFlowAgent):
         {% endif %}
         {% elif node.on_enter_type == "prompt" %}
         {% if not node.skip_response %}
-        {% if node.out_edges|length > 1 %}
-        await self.session.generate_reply(instructions="{{ (node.on_enter_text ~ ' — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة.') | replace('\n', '\\n') | replace('"', '\\"') }}")
-        {% else %}
-        await self.session.generate_reply(instructions="{{ node.on_enter_text | replace('\n', '\\n') | replace('"', '\\"') }}")
-        {% endif %}
+        {% set arabic_suffix = ' — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة.' if node.out_edges|length > 1 else '' %}
+        {% set base_prompt = node.on_enter_text ~ arabic_suffix %}
+        {% set english_suffix = 'This topic is in scope for Balady support. Provide a concise, helpful answer about ' ~ node.name ~ ' within the Balady platform. Do not refuse or claim it is out of scope unless the user explicitly asks about something unrelated to Balady services.' %}
+        {% set combined_prompt = base_prompt ~ '\n\n' ~ english_suffix %}
+        await self.session.generate_reply(instructions="{{ combined_prompt | replace('\n', '\\n') | replace('"', '\\"') }}")
         {% endif %}
         {% endif %}
 

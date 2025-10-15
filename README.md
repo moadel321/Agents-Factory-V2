@@ -40,7 +40,7 @@ python -m factory.cli generate -i flows/pizza_flow.json
 python visualize_flow.py -i flows/pizza_flow.json
 
 # Run the generated agent
-python generated/agent_pizza_ordering.py dev
+python generated/agent_pizza.py dev
 ```
 
 Your voice AI agent is now running and ready for connections!
@@ -73,11 +73,11 @@ Your voice AI agent is now running and ready for connections!
     - [Root Object](#root-object)
     - [`stt_settings`](#stt_settings)
     - [`tts_settings` (ElevenLabs or AWS Polly)](#tts_settings-elevenlabs-or-aws-polly)
-    - [`llm_settings` (OpenAI)](#llm_settings-openai)
+    - [`llm_settings` (LLM)](#llm_settings-llm)
     - [`call_settings`](#call_settings)
     - [Node Object](#node-object)
       - [`settings` (for Conversation Nodes)](#settings-for-conversation-nodes)
-      - [`function` (for Function Nodes)](#function-for-function-nodes)
+      - [`settings` (for Function Nodes)](#settings-for-function-nodes)
     - [Edge Object](#edge-object)
       - [`settings` (for Edges)](#settings-for-edges)
     - [Self-Loops for FAQ Patterns](#self-loops-for-faq-patterns)
@@ -234,23 +234,19 @@ Your agent is now running and ready to accept connections from your LiveKit inst
 
 ## Test Mode
 
-Set `FACTORY_TEST_MODE=true` to mock SMS and call transfer tasks during development/testing:
+Set `FACTORY_TEST_MODE=true` to enable generator debug logs and verbose traces during development/testing:
 
 ```bash
 # In .env file
 FACTORY_TEST_MODE=true
 
 # Or when running
-FACTORY_TEST_MODE=true python generated/agent.py dev
+FACTORY_TEST_MODE=true python generated/agent_pizza.py dev
 ```
 
 **What it does:**
-- Mocks all SMS sends and call transfers
-- Returns realistic responses with generated IDs and timestamps
-- Includes network delays (200ms SMS, 500ms transfers)
-- Logs all operations with "TEST MODE:" prefix
-
-**Mock responses include:** `test_mode: true`, generated message/participant IDs, and timestamps.
+- Enables concise generator trace logs inside the generated agent (prefixed with `[GEN-DEBUG]`).
+- Sets default log level to DEBUG unless overridden by `FACTORY_LOG_LEVEL`.
 
 ---
 
@@ -341,7 +337,7 @@ This section details the structure of the input JSON file.
 | `voice_id` | string | Voice identifier (ElevenLabs voice ID or Polly voice name). |
 | `voice_settings`| object | ElevenLabs voice settings (`stability`, `similarity_boost`, etc.). Optional for AWS. |
 
-### `llm_settings` (OpenAI)
+### `llm_settings` (LLM)
 
 | Key | Type | Description |
 |---|---|---|
@@ -379,7 +375,7 @@ This section details the structure of the input JSON file.
 | `llm_overrides`| object | (Optional) Override global `llm_settings` for this node. |
 | `capture` | array | (Optional) Node‑level field captures. Each item: `{ name, type: 'string'|'number'|'boolean'|'enum', enum?: string[], multi?: boolean, required?: boolean, description?: string }`. Generates a single `collect(...)` tool. |
 
-#### `function` (for Function Nodes)
+#### `settings` (for Function Nodes)
 
 | Key | Type | Description |
 |---|---|---|

@@ -530,7 +530,7 @@ class TheQuestionIsAboutCommercialLicensingServicesAgent(BaseFlowAgent):
         )
 
         await self.session.generate_reply(
-            instructions="انت مختص في الاجابة عن استفسارات عن الرخص التجارية في بلدي  — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة."
+            instructions="هذا السؤال ضمن نطاق منصة بلدي (الرخص التجارية). قدِّم إجابة مختصرة وواضحة عن خدمات الرخص التجارية وكيفية إتمام طلباتها عبر بلدي. — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة.\n\nThis topic is in scope for Balady support. Provide a concise, helpful answer about  within the Balady platform. Do not refuse or claim it is out of scope unless the user explicitly asks about something unrelated to Balady services."
         )
 
     @function_tool
@@ -779,7 +779,13 @@ class InquiryAboutConstructionPermitServicesAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip("بخصوص الرخص الإنشائية، وش سؤالك تحديدًا؟", False)
+        assert True, (
+            "Conversation node 52dcf9e5-a948-4c25-85ed-91db856486cf (prompt) must define non-empty on_enter_text"
+        )
+
+        await self.session.generate_reply(
+            instructions="هذا السؤال ضمن نطاق منصة بلدي (الرخص الإنشائية). قدِّم إجابة مختصرة وواضحة عن خدمات الرخص الإنشائية وإجراءات الحصول عليها عبر بلدي. — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة.\n\nThis topic is in scope for Balady support. Provide a concise, helpful answer about  within the Balady platform. Do not refuse or claim it is out of scope unless the user explicitly asks about something unrelated to Balady services."
+        )
 
     @function_tool
     async def go_Questions_outside_the_scope(self) -> Optional[Agent]:
@@ -881,9 +887,12 @@ class TheClientNeedsToFileAReportAboutTheIssueTheyAreFacingAgent(BaseFlowAgent):
                 prev_node,
             )
 
-        await self.say_or_skip(
-            "عشان أرفع البلاغ، عطيني رقم الهوية والجوال والمدينة والبلدية ووصف المشكلة.",
-            False,
+        assert True, (
+            "Conversation node de814183-88de-4412-9d2a-ae387ced5b82 (prompt) must define non-empty on_enter_text"
+        )
+
+        await self.session.generate_reply(
+            instructions="هذا الطلب ضمن نطاق منصة بلدي (رفع البلاغات). قدِّم إرشادات واضحة ومختصرة لجمع بيانات البلاغ ومتابعة حالته عبر بلدي.\n\nThis topic is in scope for Balady support. Provide a concise, helpful answer about  within the Balady platform. Do not refuse or claim it is out of scope unless the user explicitly asks about something unrelated to Balady services."
         )
 
     @function_tool
@@ -937,7 +946,7 @@ class ForInquiriesAboutHealthCertificatesAgent(BaseFlowAgent):
         )
 
         await self.session.generate_reply(
-            instructions="تحدث على المستخدم عن الخدمات الصحية المتاحة. — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة."
+            instructions="هذا السؤال ضمن نطاق منصة بلدي (الشهادات الصحية). قدِّم إجابة مختصرة وواضحة عن خدمات الشهادات الصحية وكيفية الحصول عليها عبر بلدي. — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة.\n\nThis topic is in scope for Balady support. Provide a concise, helpful answer about  within the Balady platform. Do not refuse or claim it is out of scope unless the user explicitly asks about something unrelated to Balady services."
         )
 
     @function_tool
@@ -1045,7 +1054,7 @@ class QuestionsOutsideTheScopeAgent(BaseFlowAgent):
         )
 
         await self.session.generate_reply(
-            instructions="الاسئلة خارج الاختصاص يتم تحويلها الى هذا النود فقط قول للمستخدم ممكن تعيد لي سؤالك ؟ او معليش ماسمعت ممكن تعيد لي اللي تحتاجه ؟ بحيث لا يشعر المستخدم انه تم اعادة تحويله  — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة."
+            instructions="الاسئلة خارج الاختصاص يتم تحويلها الى هذا النود فقط قول للمستخدم ممكن تعيد لي سؤالك ؟ او معليش ماسمعت ممكن تعيد لي اللي تحتاجه ؟ بحيث لا يشعر المستخدم انه تم اعادة تحويله  — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة.\n\nThis topic is in scope for Balady support. Provide a concise, helpful answer about  within the Balady platform. Do not refuse or claim it is out of scope unless the user explicitly asks about something unrelated to Balady services."
         )
 
     @function_tool
@@ -1201,7 +1210,7 @@ class AnyQuestionRegardingTheBaladiApplicationAgent(BaseFlowAgent):
         )
 
         await self.session.generate_reply(
-            instructions="اهلين كيف اقدر اخدمك في تطبيق بلدي ؟ — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة."
+            instructions="هذا السؤال ضمن نطاق منصة بلدي (تطبيق بلدي). قدِّم إجابة مختصرة وواضحة عن خدمات تطبيق بلدي وكيفية الاستفادة منها. — ملاحظة: اختر أداة انتقال واحدة فقط لهذا الدور، ولا تستخدم أكثر من أداة.\n\nThis topic is in scope for Balady support. Provide a concise, helpful answer about  within the Balady platform. Do not refuse or claim it is out of scope unless the user explicitly asks about something unrelated to Balady services."
         )
 
     @function_tool
@@ -1309,7 +1318,7 @@ class TheClientHasFinishedTheirCallAndIsSatisfiedWithTheAnswerAgent(BaseFlowAgen
         )
 
         await self.session.generate_reply(
-            instructions="اذا المستخدم انتهى من الحديث و كان راضي عن الاجابة ولا يحتاج الي شي اخر "
+            instructions="اذا المستخدم انتهى من الحديث و كان راضي عن الاجابة ولا يحتاج الي شي اخر \n\nThis topic is in scope for Balady support. Provide a concise, helpful answer about  within the Balady platform. Do not refuse or claim it is out of scope unless the user explicitly asks about something unrelated to Balady services."
         )
 
     async def _handle_terminal(self):

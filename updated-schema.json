@@ -11,9 +11,9 @@
       "max_call_duration_ms": "int"
     },
     "STTSettings": {
-      "provider": "Literal['google', 'aws', 'azure', 'deepgram']",
+      "provider": "Literal['google', 'aws', 'azure', 'deepgram']", // NEW: added 'azure' and 'deepgram' providers (see README §2 STT Settings)
       "language": "Literal['en-US', 'ar-SA']",
-      "model": "Optional[str]"
+      "model": "Optional[str]" // NEW: optional provider-specific model (e.g., Deepgram 'nova-3')
     },
     "AWSTTSSettings": {
       "tts_provider": "Literal['aws']",
@@ -29,50 +29,41 @@
     },
     "ElevenLabsTTSSettings": {
       "tts_provider": "Literal['elevenlabs']",
-      "model": "Literal['eleven_multilingual_v2', 'eleven_flash_v2_5', 'eleven_flash_v2', 'eleven_turbo_v2_5', 'eleven_turbo_v2']",
+      "model": "Literal['eleven_multilingual_v2', 'eleven_flash_v2_5', 'eleven_flash_v2', 'eleven_turbo_v2_5', 'eleven_turbo_v2']", // NEW: constrained model set vs free-text (see README §3 TTS Settings)
       "voice_id": "str",
       "voice_settings": "ElevenLabsTTSSettings_VoiceSettings"
     },
     "TTSSettings": "Annotated[Union[AWSTTSSettings, ElevenLabsTTSSettings], Field(discriminator='tts_provider')]",
     "LLMSettings": {
-      "provider": "Literal['openai', 'azure', 'google']",
-      "model": "str",
+      "provider": "Literal['openai', 'azure', 'google']", // NEW: added 'azure' (see README §4 LLM Settings)
+      "model": "str", // NEW: broadened from Literal['gpt-4.1'] to str for flexibility
       "temperature": "float",
       "max_tokens": "Optional[int]"
     },
-    "PostCallAnalysisItem": {
-      "name": "str",
-      "description": "str",
-      "type": "Literal['boolean', 'text', 'number', 'selector']",
-      "selector_options": "Optional[List[str]]"
-    },
-    "PostCallAnalysisSettings": {
-      "model": "Literal['gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'gpt-4o-mini']",
-      "analysis_items": "List[PostCallAnalysisItem]"
-    },
-    "DisplayPosition": {
+
+    "DisplayPosition": { // NEW: UI position for nodes/flow (used by visualizer)
       "x": "float",
       "y": "float"
     },
-    "LLMSimpleOverrides": {
+    "LLMSimpleOverrides": { // NEW: per-node LLM overrides (see README §8 ConversationSettings)
       "provider": "Optional[Literal['openai', 'azure', 'google']]",
       "model": "Optional[str]",
       "temperature": "Optional[float]",
       "max_tokens": "Optional[int]"
     },
-    "GlobalSettings_FinetuneExample_ConversationExample": {
+    "GlobalSettings_FinetuneExample_ConversationExample": { // NEW vs original (Global finetune was commented out)
       "speaker": "Literal['user', 'agent']",
       "text": "str"
     },
-    "GlobalSettings_FinetuneExample": {
+    "GlobalSettings_FinetuneExample": { // NEW: enabled finetune examples under GlobalSettings
       "type": "Literal['jump', 'not_jump']",
       "conversations": "List[GlobalSettings_FinetuneExample_ConversationExample]"
     },
     "GlobalSettings": {
       "prompt": "str",
-      "finetune_examples": "List[GlobalSettings_FinetuneExample]"
+      "finetune_examples": "List[GlobalSettings_FinetuneExample]" // NEW: previously commented out in original
     },
-    "ConversationSettings_CaptureField": {
+    "ConversationSettings_CaptureField": { // NEW: declarative capture fields (see README §8)
       "name": "str",
       "type": "Literal['string', 'number', 'boolean', 'enum']",
       "enum": "Optional[List[str]]",
@@ -80,90 +71,77 @@
       "required": "Optional[bool]",
       "description": "Optional[str]"
     },
-    "ConversationSettings_FinetuneExample_ConversationExample": {
+    "ConversationSettings_FinetuneExample_ConversationExample": { // NEW: conversation-level finetuning support
       "speaker": "Literal['user', 'agent']",
       "text": "str"
     },
-    "ConversationSettings_FinetuneExample": {
+    "ConversationSettings_FinetuneExample": { // NEW: conversation finetune container
       "type": "Literal['conversation']",
       "conversations": "List[ConversationSettings_FinetuneExample_ConversationExample]"
     },
     "ConversationSettings": {
+      "type": "Literal['conversation']",
       "on_enter_text": "str",
       "on_enter_type": "Literal['prompt', 'static']",
       "allow_interruptions": "bool",
       "skip_response": "bool",
-      "finetune_examples": "List[ConversationSettings_FinetuneExample]",
-      "llm_overrides": "Optional[LLMSimpleOverrides]",
-      "capture": "Optional[List[ConversationSettings_CaptureField]]"
+      "finetune_examples": "List[ConversationSettings_FinetuneExample]", // NEW: per-node finetuning examples
+      "llm_overrides": "Optional[LLMSimpleOverrides]", // NEW: per-node LLM overrides
+      "capture": "Optional[List[ConversationSettings_CaptureField]]" // NEW: structured captures -> tools
     },
-    "FunctionSettings_SpeakDuringExecution": {
+    "FunctionSettings_SpeakDuringExecution": { // NEW: structured speech while function runs (see README §9)
       "mode": "Literal['static', 'prompt']",
       "text": "Optional[str]",
       "instructions": "Optional[str]"
     },
     "FunctionSettings": {
-      "function_type": "Literal['sms', 'call_transfer', 'rest_webhook']",
-      "url": "str",
-      "method": "Literal['GET', 'POST', 'PUT', 'DELETE', 'PATCH']",
-      "headers": "Optional[Dict[str, str]]",
-      "body": "Optional[Dict]",
-      "parameters_schema": "Optional[Dict]",
-      "timeout_ms": "int",
-      "retries": "int",
-      "speak_during_execution": "Optional[FunctionSettings_SpeakDuringExecution]",
-      "wait_for_result": "bool"
-    },
-    "NodeOut": {
-      "id": "str",
-      "created": "datetime",
-      "updated": "datetime",
-      "name": "str",
-      "class_name": "str",
-      "is_global": "bool",
-      "global_settings": "Optional[GlobalSettings]",
-      "position": "DisplayPosition",
-      "type": "Literal['conversation', 'function']",
-      "on_enter_text": "Optional[str]",
-      "on_enter_type": "Optional[Literal['prompt', 'static']]",
-      "skip_response": "Optional[bool]",
-      "settings": "ConversationSettings",
-      "function": "Optional[FunctionSettings]",
-      "out_edges": "List[EdgeOut]"
+      "url": "str", // NEW: flattened from original FunctionCallBody.endpoint
+      "method": "Literal['GET', 'POST', 'PUT', 'DELETE', 'PATCH']", // NEW: moved out of FunctionCallBody
+      "headers": "Optional[Dict[str, str]]", // NEW: moved out of FunctionCallBody
+      "body": "Optional[Dict]", // NEW: simplified generic body vs typed FunctionCallBody
+      "timeout_ms": "int", // NEW: execution timeout
+      "retries": "int", // NEW: retry count
+      "speak_during_execution": "Optional[FunctionSettings_SpeakDuringExecution]", // NEW: replaces boolean speak flags with structured config
+      "wait_for_result": "bool" // NEW: replaces original wait_for_completion
     },
     "EdgePrompt": {
       "prompt": "str",
-      "name": "Optional[str]"
+      "name": "Optional[str]" // NEW: optional code-friendly name used for tool naming
+    },
+    "NodeOut": {
+      "id": "str",
+      "created": "datetime", // NEW: timestamp (authoring convenience)
+      "updated": "datetime", // NEW: timestamp (authoring convenience)
+      "name": "str",
+      "is_global": "bool",
+      "global_settings": "Optional[GlobalSettings]",
+      "position": "DisplayPosition", // NEW: node UI position
+      "type": "Literal['conversation', 'function']",
+      "settings": "Union[ConversationSettings, FunctionSettings]"
     },
     "EdgeOut": {
       "id": "str",
-      "edge_id": "str",
-      "edge_type": "str",
-      "created": "datetime",
-      "updated": "datetime",
+      "created": "datetime", // NEW: timestamp (authoring convenience)
+      "updated": "datetime", // NEW: timestamp (authoring convenience)
       "from_node_id": "str",
       "to_node_id": "Optional[str]",
       "type": "Literal['prompt', 'skip']",
-      "settings": "Optional[EdgePrompt]",
-      "tool_name": "str",
-      "description": "str",
-      "next_class_name": "Optional[str]"
+      "settings": "Optional[EdgePrompt]"
     },
     "ConversationFlowOut": {
       "id": "str",
-      "url_id": "str",
-      "created": "datetime",
-      "updated": "datetime",
+      "url_id": "str", // NEW: short id used for file/agent naming
+      "created": "datetime", // NEW: flow-level timestamp
+      "updated": "datetime", // NEW: flow-level timestamp
       "name": "str",
       "instructions": "str",
       "stt_settings": "STTSettings",
       "tts_settings": "TTSSettings",
       "llm_settings": "LLMSettings",
       "call_settings": "CallSettings",
-      "post_call_analysis": "Optional[PostCallAnalysisSettings]",
-      "begin_position": "DisplayPosition",
+      "post_call_analysis": "Optional[PostCallAnalysisSettings]", // NEW: optional PCA (see README Test/Analysis sections)
+      "begin_position": "DisplayPosition", // NEW: canvas origin for visualization
       "start_node_id": "Optional[str]",
-      "start_class_name": "str",
       "nodes": "List[NodeOut]",
       "edges": "List[EdgeOut]"
     }

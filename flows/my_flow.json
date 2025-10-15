@@ -52,7 +52,7 @@
             },
             "type": "conversation",
             "settings": {
-                "on_enter_text": "انت مختص في الاجابة عن استفسارات عن الرخص التجارية في بلدي ",
+                "on_enter_text": "هذا السؤال ضمن نطاق منصة بلدي (الرخص التجارية). قدِّم إجابة مختصرة وواضحة عن خدمات الرخص التجارية وكيفية إتمام طلباتها عبر بلدي.",
                 "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
@@ -94,8 +94,8 @@
             },
             "type": "conversation",
             "settings": {
-                "on_enter_text": "بخصوص الرخص الإنشائية، وش سؤالك تحديدًا؟",
-                "on_enter_type": "static",
+                "on_enter_text": "هذا السؤال ضمن نطاق منصة بلدي (الرخص الإنشائية). قدِّم إجابة مختصرة وواضحة عن خدمات الرخص الإنشائية وإجراءات الحصول عليها عبر بلدي.",
+                "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
                 "type": "conversation",
@@ -115,7 +115,7 @@
             },
             "type": "conversation",
             "settings": {
-                "on_enter_text": "عشان أرفع البلاغ، عطيني رقم الهوية والجوال والمدينة والبلدية ووصف المشكلة.",
+                "on_enter_text": "سؤالك الحالي خارج نطاق خدمات منصة بلدي. إذا كنت تحتاج رفع بلاغ متعلق بالمنصة، عطيني نوع المشكلة ورقم البلاغ أو بيانات التواصل علشان أقدر أساعدك بالطريقة الصحيحة.",
                 "on_enter_type": "static",
                 "allow_interruptions": true,
                 "skip_response": false,
@@ -136,7 +136,7 @@
             },
             "type": "conversation",
             "settings": {
-                "on_enter_text": "تحدث على المستخدم عن الخدمات الصحية المتاحة.",
+                "on_enter_text": "هذا السؤال ضمن نطاق منصة بلدي (الشهادات الصحية). قدِّم إجابة مختصرة وواضحة عن خدمات الشهادات الصحية وكيفية الحصول عليها عبر بلدي.",
                 "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
@@ -157,8 +157,8 @@
             },
             "type": "conversation",
             "settings": {
-                "on_enter_text": "الاسئلة خارج الاختصاص يتم تحويلها الى هذا النود فقط قول للمستخدم ممكن تعيد لي سؤالك ؟ او معليش ماسمعت ممكن تعيد لي اللي تحتاجه ؟ بحيث لا يشعر المستخدم انه تم اعادة تحويله ",
-                "on_enter_type": "prompt",
+                "on_enter_text": "سؤالك خارج نطاق خدمات منصة بلدي. لو تقدر توضّح احتياجك ضمن خدمات المنصة أو البلاغات البلدية، أقدر أساعدك مباشرة.",
+                "on_enter_type": "static",
                 "allow_interruptions": true,
                 "skip_response": false,
                 "type": "conversation",
@@ -178,7 +178,7 @@
             },
             "type": "conversation",
             "settings": {
-                "on_enter_text": "اهلين كيف اقدر اخدمك في تطبيق بلدي ؟",
+                "on_enter_text": "هذا السؤال ضمن نطاق منصة بلدي (تطبيق بلدي). قدِّم إجابة مختصرة وواضحة عن خدمات تطبيق بلدي وكيفية الاستفادة منها.",
                 "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
