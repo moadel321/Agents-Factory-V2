@@ -103,6 +103,40 @@
             }
         },
         {
+            "id": "collect_complaint_api_node",
+            "created": "2025-10-18T21:00:00",
+            "updated": "2025-10-18T21:00:00",
+            "name": "Collect Complaint Data API",
+            "is_global": false,
+            "global_settings": null,
+            "position": {
+                "x": 0.0,
+                "y": 0.0
+            },
+            "type": "function",
+            "settings": {
+                "type": "function",
+                "url": "https://httpbin.org/post",
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json"
+                },
+                "body": {
+                    "complaint_type": "user_report",
+                    "user_input": "Complaint received via voice",
+                    "timestamp": "auto_generated",
+                    "source": "baladi_voice_agent"
+                },
+                "timeout_ms": 10000,
+                "retries": 1,
+                "wait_for_result": true,
+                "speak_during_execution": {
+                    "mode": "static",
+                    "text": "جاري تسجيل بلاغك، لحظة من فضلك..."
+                }
+            }
+        },
+        {
             "id": "de814183-88de-4412-9d2a-ae387ced5b82",
             "created": "2025-10-08T11:57:49.319651",
             "updated": "2025-10-08T11:57:49.319653",
@@ -115,8 +149,29 @@
             },
             "type": "conversation",
             "settings": {
-                "on_enter_text": "تمام، استلمت طلبك. راح يتم التواصل معك من قبل فريق الدعم الفني خلال 24 ساعة. كيف أقدر أخدمك في شي ثاني؟",
+                "on_enter_text": "تمام، استلمت طلبك. راح يتم التواصل معك من قبل فريق الدعم الفني خلال 24 ساعة.",
                 "on_enter_type": "static",
+                "allow_interruptions": true,
+                "skip_response": false,
+                "type": "conversation",
+                "finetune_examples": []
+            }
+        },
+        {
+            "id": "ask_if_wants_anything_else",
+            "created": "2025-10-18T21:45:00",
+            "updated": "2025-10-18T21:45:00",
+            "name": "Ask If Wants Anything Else",
+            "is_global": false,
+            "global_settings": null,
+            "position": {
+                "x": 0.0,
+                "y": 0.0
+            },
+            "type": "conversation",
+            "settings": {
+                "on_enter_text": "اسأل المستخدم: هل تحتاج أي شيء آخر أقدر أساعدك فيه؟",
+                "on_enter_type": "prompt",
                 "allow_interruptions": true,
                 "skip_response": false,
                 "type": "conversation",
@@ -287,14 +342,50 @@
             }
         },
         {
-            "id": "edge_report_back_to_welcome",
-            "created": "2025-10-18T18:00:00",
-            "updated": "2025-10-18T18:00:00",
+            "id": "edge_function_to_acknowledgment",
+            "created": "2025-10-18T21:05:00",
+            "updated": "2025-10-18T21:05:00",
+            "from_node_id": "collect_complaint_api_node",
+            "to_node_id": "de814183-88de-4412-9d2a-ae387ced5b82",
+            "type": "prompt",
+            "settings": {
+                "prompt": "API call completed successfully, proceed to acknowledgment",
+                "name": "proceed_to_acknowledgment"
+            }
+        },
+        {
+            "id": "edge_acknowledgment_to_ask_node",
+            "created": "2025-10-18T21:46:00",
+            "updated": "2025-10-18T21:46:00",
             "from_node_id": "de814183-88de-4412-9d2a-ae387ced5b82",
+            "to_node_id": "ask_if_wants_anything_else",
+            "type": "prompt",
+            "settings": {
+                "prompt": "Acknowledgment completed, proceed to ask if wants anything else",
+                "name": "proceed_to_ask"
+            }
+        },
+        {
+            "id": "edge_ask_to_end_call",
+            "created": "2025-10-18T21:46:00",
+            "updated": "2025-10-18T21:46:00",
+            "from_node_id": "ask_if_wants_anything_else",
+            "to_node_id": "3cf127d0-051e-43da-8d13-a5161b4fcc15",
+            "type": "prompt",
+            "settings": {
+                "prompt": "المستخدم لا يحتاج أي شيء آخر وانتهى من المكالمة",
+                "name": "end_call"
+            }
+        },
+        {
+            "id": "edge_ask_to_welcome",
+            "created": "2025-10-18T21:46:00",
+            "updated": "2025-10-18T21:46:00",
+            "from_node_id": "ask_if_wants_anything_else",
             "to_node_id": "8e62249f-390e-411e-8bcf-2a7469a0740f",
             "type": "prompt",
             "settings": {
-                "prompt": "المستخدم يريد خدمة أخرى أو لديه سؤال إضافي",
+                "prompt": "المستخدم يحتاج مساعدة إضافية أو خدمة أخرى",
                 "name": "back_to_main_menu"
             }
         },
@@ -381,7 +472,7 @@
             "created": "2025-10-08T11:59:26.908919",
             "updated": "2025-10-08T11:59:26.908921",
             "from_node_id": "5fb9d8c6-da7b-4751-824b-beee19b52c4b",
-            "to_node_id": "de814183-88de-4412-9d2a-ae387ced5b82",
+            "to_node_id": "collect_complaint_api_node",
             "type": "prompt",
             "settings": {
                 "prompt": "المستخدم يحتاج الى رفع بلاغ بالمشكلة اللي تواجهه "
@@ -392,7 +483,7 @@
             "created": "2025-10-08T11:59:12.795650",
             "updated": "2025-10-08T11:59:12.795653",
             "from_node_id": "ed0c12c8-d1c2-4916-8420-8ae56da668f6",
-            "to_node_id": "de814183-88de-4412-9d2a-ae387ced5b82",
+            "to_node_id": "collect_complaint_api_node",
             "type": "prompt",
             "settings": {
                 "prompt": "المستخدم يحتاج الى رفع بلاغ بالمشكلة اللي تواجهه "
@@ -403,7 +494,7 @@
             "created": "2025-10-08T11:58:59.309318",
             "updated": "2025-10-08T11:58:59.309321",
             "from_node_id": "52dcf9e5-a948-4c25-85ed-91db856486cf",
-            "to_node_id": "de814183-88de-4412-9d2a-ae387ced5b82",
+            "to_node_id": "collect_complaint_api_node",
             "type": "prompt",
             "settings": {
                 "prompt": "المستخدم يحتاج الى رفع بلاغ بالمشكلة اللي تواجهه "
@@ -414,7 +505,7 @@
             "created": "2025-10-08T11:58:10.509926",
             "updated": "2025-10-08T11:58:10.509929",
             "from_node_id": "3861fccb-1d03-435e-9ebd-777b6867ecc1",
-            "to_node_id": "de814183-88de-4412-9d2a-ae387ced5b82",
+            "to_node_id": "collect_complaint_api_node",
             "type": "prompt",
             "settings": {
                 "prompt": "المستخدم يحتاج الى رفع بلاغ بالمشكلة اللي تواجهه "
