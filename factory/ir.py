@@ -74,6 +74,7 @@ def build_ir(flow: ConversationFlowOut) -> IRFlow:
         class_name = _classify(n.name or n.id)
         node_ir: Dict[str, Any] = {
             "id": n.id,
+            "name": n.name,
             "class_name": class_name,
             "type": n.type,
             "out_edges": [],
